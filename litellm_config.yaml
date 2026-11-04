@@ -1,0 +1,33 @@
+# LiteLLM proxy config — SAME file used locally (pip process) and on EC2 (container).
+# 3-tier fallback chain: Gemini Flash -> Groq GPT-OSS 120B -> Gemini Flash-Lite.
+# Fails over on ANY error: rate limit, quota, context overflow, 5xx, timeout, model retired.
+#
+# NOTE (Oct 2026): Groq RETIRED llama-3.3-70b-versatile on 2026-08-16 for free/dev
+# tiers — replacement is openai/gpt-oss-120b. Hosted model IDs change: verify this
+# config against provider model pages when onboarding, and test the fallback path.
+
+model_list:
+  - model_name: support-chat            # primary: Gemini (best free quality, 1M ctx)
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: support-chat-backup     # failover #1: Groq (different provider)
+    litellm_params:
+      model: groq/openai/gpt-oss-120b   # groq/ prefix + model id (slash kept after prefix)
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: support-chat-tertiary   # failover #2: same provider, different quota pool
+    litellm_params:
+      model: gemini/gemini-3.5-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+
+litellm_settings:
+  drop_params: true          # strip params the upstream model doesn't accept
+  request_timeout: 60
+  num_retries: 1
+  fallbacks:
+    - support-chat: ["support-chat-backup", "support-chat-tertiary"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # app authenticates to proxy with this

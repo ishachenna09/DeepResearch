@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+.vite/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Docker / local data
+*.log
+pgdata/
+redisdata/
+langfuse-data/
+
+# Model caches
+models/
+*.gguf
+.cache/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Generated
+*.sqlite3
+alembic/versions/*.pyc
