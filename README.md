@@ -40,7 +40,7 @@ DeepResearch/
 
 ---
 
-## Build phases (we go one at a time — you code, I instruct)
+## Build phases 
 
 | Phase | Deliverable | You learn here |
 |---|---|---|
