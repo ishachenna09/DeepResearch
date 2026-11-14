@@ -8,8 +8,11 @@ alembic>=1.14
 PyJWT>=2.10
 argon2-cffi>=23.1
 redis>=5.2
-litellm>=1.73
-langfuse>=2.60
+# NOTE: litellm is NOT an app dependency. The proxy runs in .venv-litellm
+# (see scripts/requirements-litellm.txt) because litellm[proxy] needs
+# mcp>=2.3.0 while langchain-mcp-adapters pins mcp<2.0.0. In production the
+# proxy is a separate container, so a separate venv mirrors that isolation.
+langfuse>=5.0
 httpx>=0.28
 email-validator>=2.2
 python-multipart>=0.0.18
@@ -17,3 +20,9 @@ langgraph>=1.2.21
 langgraph-checkpoint-redis>=0.6.0
 langchain-openai>=1.7.4
 langchain-core>=1.8.0
+
+# Phase 2 - MCP tools + web extraction
+# mcp 2.x exists, but langchain-mcp-adapters 0.3.2 requires mcp<2.0.0 -> stay on 1.x
+mcp==1.30.0
+langchain-mcp-adapters>=0.3.2
+trafilatura>=2.3.1

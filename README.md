@@ -46,7 +46,7 @@ DeepResearch/
 |---|---|---|
 | **0** (done) | Auth shell (reuse DeepSearch Phase 0) + Tavily key | JWT, SSE plumbing |
 | **1** (done) | Question → **research plan** → human approves (HITL) | LangGraph `interrupt()`, checkpoints, **Redis** |
-| **2** | `web_search` + `fetch_page` tools, content scanning | **MCP** servers, guardrails on untrusted web content |
+| **2** (done) | `web_search` + `fetch_page` tools, content scanning | **MCP** servers, guardrails on untrusted web content |
 | **3** | Parallel searcher fan-out, page cache, notes → pgvector | **Redis** cache/queues, LangGraph `Send` (map-reduce) |
 | **4** | Critic agent + bounded gap-filling loop + token budget | Eval-driven loop control, failure modes |
 | **5** | Writer streams report + **citation validator** | SSE streaming, claim→source verification |
@@ -58,6 +58,31 @@ DeepResearch/
 
 ## Local dev (no Docker on laptop)
 - Infra: **Neon** (Postgres+pgvector) · **Redis Cloud** (Redis 8 + RediSearch, checkpoints) A. Upstash (plain cache/queues) · **Langfuse Cloud** — all free
-- Backend: `.venv` + `uvicorn` · LLM gateway: `litellm` pip process (Gemini → Groq fallback)
+- Backend: `.venv` + `uvicorn` · LLM gateway: `litellm[proxy]` in its OWN venv `.venv-litellm` (mcp 2.x vs mcp 1.x, see scripts/requirements-litellm.txt) (Gemini → Groq fallback)
 - Frontend: `npm run dev`
 - Docker only on **EC2 + GitHub Actions** (Phase 10)
+
+### First-time setup (once per clone / new machine)
+
+Two virtualenvs on purpose: the API needs `mcp<2` (langchain-mcp-adapters) and the
+LiteLLM proxy needs `mcp>=2.3`. In production they are two containers.
+
+Run from the repo root (`C:\projects\DeepResearch`). Windows PowerShell 5.1 does
+NOT support `&&`, so run the lines one at a time.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r api\requirements.txt
+
+python -m venv .venv-litellm
+.venv-litellm\Scripts\python.exe -m pip install -r scripts\requirements-litellm.txt
+```
+
+Verify:
+```powershell
+.venv\Scripts\python.exe -c "from importlib.metadata import version; print('mcp', version('mcp'))"
+.venv-litellm\Scripts\python.exe -c "from importlib.metadata import version; print('litellm', version('litellm'), 'mcp', version('mcp'))"
+```
+
+Then: `scripts\start_litellm.ps1` (terminal 1), `scripts\start_api.ps1` (terminal 2),
+`npm run dev` (terminal 3, from `frontend/`).

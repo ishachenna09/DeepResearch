@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # NOTE: deliberately NOT named DATABASE_URL — LiteLLM auto-detects that exact
     # name (Heroku-style convention) and tries to use it as ITS OWN metadata DB.
     APP_DATABASE_URL: str       # Neon (Postgres + pgvector)
-    REDIS_URL: str             # Upstash (rediss://...)
+    REDIS_URL: str             # Redis Cloud (RediSearch) - checkpoints; Upstash is cache-only
 
     # ── LLM gateway (LiteLLM proxy: local pip process / EC2 container) ──
     LITELLM_BASE_URL: str = "http://localhost:4000"
@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     LLM_PRIMARY_MODEL: str = "support-chat"          # proxy model name (Gemini)
     GEMINI_API_KEY: str = ""
     GROQ_API_KEY: str = ""
+
+    # ── Web tools (Phase 2: MCP servers) ─────────────────
+    TAVILY_API_KEY: str = ""
+    TAVILY_API_URL: str = "https://api.tavily.com/search"
+    MAX_FETCH_BYTES: int = 2_000_000   # hard cap on a downloaded page (2 MB)
+    MAX_PAGE_CHARS: int = 12_000       # cap on extracted text handed to an LLM
+    MCP_WEB_TOOL_MODULE: str = "app.mcp_tools.servers.web_tools"
 
     # ── Observability (Langfuse Cloud) ───────────────────
     LANGFUSE_HOST: str = ""

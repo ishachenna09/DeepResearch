@@ -1,0 +1,12 @@
+# LiteLLM proxy dependencies - installed into .venv-litellm, NOT into .venv.
+#
+# Reason: litellm[proxy] requires mcp>=2.3.0 (it imports the experimental MCP
+# server module at startup), while the API needs langchain-mcp-adapters which
+# pins mcp<2.0.0. Two incompatible pins => two environments. In production this
+# is a separate container, so a separate venv is the faithful local topology.
+#
+# Setup (from the repo root):
+#   python -m venv .venv-litellm
+#   .\.venv-litellm\Scripts\python.exe -m pip install -r scripts\requirements-litellm.txt
+#
+litellm[proxy]>=1.109.1

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.agents.checkpointer import close_checkpointer, init_checkpointer
 from app.agents.graph import init_graph
+from app.agents.mcp_client import close_toolbox, init_toolbox
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.observability import get_langfuse, shutdown_langfuse
@@ -16,7 +17,9 @@ async def lifespan(app: FastAPI):
     get_langfuse()          # instantiate tracing at boot -> bad keys fail loudly
     await init_checkpointer()
     init_graph()
+    await init_toolbox()    # spawns the MCP server (soft-fail, see mcp_client)
     yield
+    await close_toolbox()
     await close_checkpointer()
     shutdown_langfuse()
     await engine.dispose()

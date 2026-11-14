@@ -1,9 +1,26 @@
-# Starts the LiteLLM proxy using the venv's litellm.exe (no activation needed).
-# Exports ONLY the keys the proxy consumes, and fails fast if any is missing.
-# Our DB URL is named APP_DATABASE_URL so LiteLLM never mistakes it for its own DB.
+# Starts the LiteLLM proxy from its OWN virtualenv (.venv-litellm).
+#
+# WHY a second venv?
+#   litellm[proxy] imports litellm.proxy.proxy_server -> needs mcp>=2.3.0
+#   langchain-mcp-adapters (used by the API) needs mcp<2.0.0
+#   -> the two packages cannot share one site-packages. In production LiteLLM is
+#      a separate container, so locally it is a separate venv: same topology.
+#
+# Setup once:
+#   python -m venv .venv-litellm
+#   .\.venv-litellm\Scripts\python.exe -m pip install -r scripts\requirements-litellm.txt
 $root = Split-Path -Parent $PSScriptRoot
-$litellm = Join-Path $root '.venv\Scripts\litellm.exe'
+$venvPython = Join-Path $root '.venv-litellm\Scripts\python.exe'
+$litellm = Join-Path $root '.venv-litellm\Scripts\litellm.exe'
 $required = @('GEMINI_API_KEY', 'GROQ_API_KEY', 'LITELLM_MASTER_KEY')
+
+if (-not (Test-Path $litellm)) {
+    Write-Host "STOP: .venv-litellm is missing (or has no litellm.exe)." -ForegroundColor Red
+    Write-Host "Run once, from the repo root:" -ForegroundColor Yellow
+    Write-Host "  python -m venv .venv-litellm"
+    Write-Host "  .\.venv-litellm\Scripts\python.exe -m pip install -r scripts\requirements-litellm.txt"
+    exit 1
+}
 
 $loaded = @{}
 Get-Content (Join-Path $root '.env') | ForEach-Object {
@@ -21,8 +38,18 @@ if ($missing) {
 }
 
 foreach ($k in $loaded.Keys) { [Environment]::SetEnvironmentVariable($k, $loaded[$k], 'Process') }
+
+# LiteLLM's startup banner contains non-ASCII characters. If stdout is a pipe
+# (redirected log, Docker log driver) Python defaults to cp1252 on Windows and
+# raises UnicodeEncodeError -> startup aborts. Force UTF-8 for the child.
+[Environment]::SetEnvironmentVariable('PYTHONIOENCODING', 'utf-8', 'Process')
+
 Write-Host "Loaded keys: $($loaded.Keys -join ', ')" -ForegroundColor Green
+try {
+    $versions = & $venvPython -c "from importlib.metadata import version; print(f'litellm {version(\"litellm\")} | mcp {version(\"mcp\")}')" 2>$null
+    Write-Host "Versions:    $versions" -ForegroundColor DarkGray
+} catch { }
 
 Set-Location $root
-Write-Host "Starting LiteLLM proxy on :4000  (Gemini -> Groq fallback)..." -ForegroundColor Cyan
+Write-Host "Starting LiteLLM proxy on :4000  (Gemini -> Groq -> Gemini-Lite)..." -ForegroundColor Cyan
 & $litellm --config litellm_config.yaml --port 4000

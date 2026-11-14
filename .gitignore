@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-litellm/
 venv/
 .pytest_cache/
 .mypy_cache/

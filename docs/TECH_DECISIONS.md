@@ -69,3 +69,29 @@ Rule for every answer: **decision → alternative → why we chose it → the tr
   checkpoint by `thread_id`
 - `GET /research/{id}` -> identical plan (Postgres JSONB); another user gets **404** (ownership enforced
   in the query, not the prompt)
+
+---
+
+## Phase 2 - MCP tools + guardrails
+
+| Decision | Chosen | Alternatives considered | Why rejected |
+|---|---|---|---|
+| **Tool distribution** | MCP server over **stdio** (FastMCP) | Import the tool functions into the API | A protocol means the same server serves LangGraph today, Claude Desktop tomorrow, and a remote HTTP service in Phase 6 without agent changes. Also process isolation: a hanging fetch cannot block the API event loop. |
+| **SDK version** | `mcp==1.30.0` (latest 1.x) | `mcp 2.3.0` (latest overall) | `langchain-mcp-adapters 0.3.2` pins `mcp<2.0.0`; 2.x would force a hand-written MCP client. Revisit when the adapter supports 2.x. |
+| **Session lifetime** | One persistent `ClientSession` per process (AsyncExitStack) | `client.get_tools()` per request | `get_tools()` spawns a NEW python process per tool call (1-2 s + memory) and Phase 3 fans out many calls - a process storm. Persistent session + semaphore(8). |
+| **Search API** | Tavily (REST via httpx) | Brave, Serper, Google CSE, DuckDuckGo scraping | Brave/Serper need a card; CSE caps at 100/day; DDG scraping = blocks + ToS risk. Tavily is agent-tuned (ranked snippets + score), 1k free/month, and the REST call is 20 lines so no SDK dependency. |
+| **Extraction** | `trafilatura` 2.3.1 | `readability-lxml`, `newspaper3k`, regex | readability = low maintenance; newspaper3k = broken deps; regex keeps nav/boilerplate and blows the token budget. |
+| **Injection defence** | Own layered scanner (normalise -> 8 heuristic patterns -> flags) + spotlighting + Phase 5 citation validator | `llm-guard`, `rebuff`, a HF classifier | `llm-guard` requires Python <3.13 (cannot install on 3.14) and has had no release since May 2025; HF classifiers need torch (3.14 wheels not settled) and add latency per page. Heuristics are ~0 ms, auditable, and testable in CI. |
+| **Flag vs block** | Flags lower trust and are logged; never silently dropped | Hard-block on match | Regex false positives would discard good sources. Trust scores + eval metrics beat binary blocking. |
+| **SSRF** | Resolve + classify every address, re-check each redirect hop, 80/443 only | Trust the search engine / check only the first URL | The attacker controls the page, not the search index. A public URL can 302 to `127.0.0.1` or `169.254.169.254` (cloud metadata -> IAM creds). |
+| **Error surface** | Tool failures arrive as MCP `isError` content -> mapped to 400 (bad input) or 502 (upstream) | Let exceptions bubble as 500 | Callers need to distinguish "you sent a bad URL" from "the provider broke". |
+
+### Phase 2 verification evidence
+
+- `GET /tools` -> `web_search`, `fetch_page` advertised over `mcp/stdio`
+- `POST /tools/search` -> 3 hits (2.2 s cold, ~70 ms warm on the persistent session)
+- `POST /tools/fetch` -> 156 chars extracted from example.com in ~40-274 ms, `injected=false`
+- `POST /tools/fetch` on `169.254.169.254` -> **HTTP 400** `non-public address`
+- `GET /tools/selftest` -> `{ok: true}` across search, fetch and SSRF guard
+| 2026-10-30 | LiteLLM proxy would not boot: `ImportError: cannot import name 'CacheableResult' from 'mcp.types'` (immediately after adding MCP tools to the API) | `litellm[proxy]` imports its experimental MCP server module at startup and needs `mcp>=2.3.0`; `langchain-mcp-adapters 0.3.2` pins `mcp<2.0.0`. Two incompatible pins in one site-packages. Note litellm 1.106.4 did not even declare the dependency - it assumed a version. | Created `.venv-litellm` with `litellm[proxy]` + `mcp 2.3.0`; API venv keeps `mcp 1.30.0`; `litellm` removed from `api/requirements.txt`; `start_litellm.ps1` uses the second venv and fails fast with setup instructions | A venv is a deployment unit. In production these are two containers, so locally they must be two environments - the shared venv was only ever an illusion of convenience. When a library imports a transitive dependency it does not declare, you discover the conflict at import time, not at install time. |
+| 2026-10-30 | LiteLLM aborted startup with `UnicodeEncodeError: 'charmap' codec can't encode characters` when its log was redirected to a file | Python on Windows defaults stdout to cp1252; LiteLLM's startup banner contains non-ASCII characters, and the exception killed the process | `PYTHONIOENCODING=utf-8` set by `start_litellm.ps1` before launch | Anything that must survive CI/Docker log capture needs UTF-8 stdout. "It works in my terminal" hides an encoding landmine that only appears when stdout is a pipe. |
