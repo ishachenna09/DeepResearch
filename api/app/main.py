@@ -3,17 +3,24 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agents.checkpointer import close_checkpointer, init_checkpointer
+from app.agents.graph import init_graph
 from app.api.v1 import api_router
 from app.core.config import settings
-from app.core.observability import shutdown_langfuse
+from app.core.observability import get_langfuse, shutdown_langfuse
 from app.db import engine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_langfuse()          # instantiate tracing at boot -> bad keys fail loudly
+    await init_checkpointer()
+    init_graph()
     yield
+    await close_checkpointer()
     shutdown_langfuse()
     await engine.dispose()
+    
 
 
 app = FastAPI(

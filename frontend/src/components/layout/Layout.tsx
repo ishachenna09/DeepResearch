@@ -21,7 +21,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <header className="flex items-center justify-between border-b border-slate-800 px-6 py-3">
         <div className="flex items-center gap-2">
           <span className="rounded bg-indigo-600 px-2 py-1 text-sm font-bold">SIQ</span>
-          <span className="font-semibold">SupportIQ</span>
+          <span className="font-semibold">DeepSearch</span>
         </div>
         <div className="flex items-center gap-4 text-sm">
           {user && (

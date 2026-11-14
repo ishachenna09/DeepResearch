@@ -18,7 +18,7 @@ from app.schemas.auth import LoginIn, RegisterIn, TokenOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-REFRESH_COOKIE = "supportiq_refresh"
+REFRESH_COOKIE = "DeepSearch_refresh"
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:

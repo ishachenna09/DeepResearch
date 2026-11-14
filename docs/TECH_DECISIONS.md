@@ -50,3 +50,22 @@ Rule for every answer: **decision → alternative → why we chose it → the tr
 - **"Why Redis over just Postgres?"** — "Postgres is durable truth; Redis is ephemeral speed — checkpoints for crash recovery, cache to dedupe fetches, pub/sub to fan out stream tokens without polling the DB."
 - **"How do you know it's correct?"** — "Citation precision ≥0.90 on a golden set, gated in CI; every claim links to cached source text so a human can verify."
 - **"Why not OpenAI?"** — "No usable free tier; we're on Gemini (1M context, free) with Groq failover behind LiteLLM — one config line to swap."
+
+---
+
+## Incident log (ops learnings - each one is an interview story)
+
+| Date | What broke | Root cause | Fix | Lesson |
+|---|---|---|---|---|
+| 2026-10-28 | LLM fallback chain returned 404 | Groq retired `llama-3.3-70b-versatile` on 2026-08-16 (free/dev tiers); the backup tier was silently dead until the primary 503'd | Backup -> `groq/openai/gpt-oss-120b`; added a 3rd tier (`gemini-2.5-flash-lite`); `/health/llm` now reports `served_by` | "A fallback you never exercised is not a fallback." Hosted model IDs are a moving dependency - pin, verify, and test the failover path. |
+| 2026-10-29 | API refused to start: `RedisSearchError: Upstash Redis does not support FT.* commands` | `langgraph-checkpoint-redis` requires RedisJSON + RediSearch (it builds FT.* indices in `asetup()`); Upstash is a restricted serverless Redis with its own `SEARCH.*` API and no modules | Moved checkpoints to **Redis Cloud free 30MB** (Redis 8.4, `search` + `ReJSON` loaded). Upstash kept for plain cache/queues later | "Redis" is not one thing. Capability beats brand: check `MODULE LIST` before adopting a provider. Fail at startup (lifespan), never at first request. |
+| 2026-10-29 | Langfuse showed no traces at all | `get_llm()` built `ChatOpenAI` with no `callbacks=`, so nothing was ever exported; the Langfuse client existed but was never attached | `callbacks=[CallbackHandler()]` in `get_llm()` + instantiate the client in `lifespan` so bad keys fail fast | "Observability you never looked at is observability you do not have." Verify the trace appears in the UI, not just that the SDK is installed. |
+
+### Phase 1 verification evidence (keep these numbers)
+
+- `POST /research` -> `awaiting_approval` in **14.4s** (real planner LLM call; served by `openai/gpt-oss-120b`
+  because Gemini was 503 - the failover chain worked live)
+- approve **after a full API restart** -> `approved` with **no LLM call**: state rehydrated from the Redis
+  checkpoint by `thread_id`
+- `GET /research/{id}` -> identical plan (Postgres JSONB); another user gets **404** (ownership enforced
+  in the query, not the prompt)

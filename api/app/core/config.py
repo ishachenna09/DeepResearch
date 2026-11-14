@@ -3,9 +3,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# SupportIQ/  (repo root — two levels up from app/core/)
+# DeepResearch/  (repo root — two levels up from app/core/)
 ROOT_DIR = Path(__file__).resolve().parents[3]
 
+
+#this settings class reads .env via pydantic-settings and every other files imports this settings 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -14,7 +16,7 @@ class Settings(BaseSettings):
 
     # ── App ──────────────────────────────────────────────
     APP_ENV: str = "local"
-    APP_NAME: str = "SupportIQ"
+    APP_NAME: str = "DeepResearch"
     APP_VERSION: str = "0.1.0"
     FRONTEND_URL: str = "http://localhost:5173"
 

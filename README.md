@@ -44,8 +44,8 @@ DeepResearch/
 
 | Phase | Deliverable | You learn here |
 |---|---|---|
-| **0** | Auth shell (reuse SupportIQ Phase 0) + Tavily key | JWT, SSE plumbing |
-| **1** | Question → **research plan** → human approves (HITL) | LangGraph `interrupt()`, checkpoints, **Redis** |
+| **0** (done) | Auth shell (reuse DeepSearch Phase 0) + Tavily key | JWT, SSE plumbing |
+| **1** (done) | Question → **research plan** → human approves (HITL) | LangGraph `interrupt()`, checkpoints, **Redis** |
 | **2** | `web_search` + `fetch_page` tools, content scanning | **MCP** servers, guardrails on untrusted web content |
 | **3** | Parallel searcher fan-out, page cache, notes → pgvector | **Redis** cache/queues, LangGraph `Send` (map-reduce) |
 | **4** | Critic agent + bounded gap-filling loop + token budget | Eval-driven loop control, failure modes |
@@ -57,7 +57,7 @@ DeepResearch/
 | **10** | Deploy: GH Actions → Docker → EC2 + Vercel → **public URL** | CI/CD, TLS, containers (cloud only) |
 
 ## Local dev (no Docker on laptop)
-- Infra: **Neon** (Postgres+pgvector) · **Upstash** (Redis) · **Langfuse Cloud** — all free
+- Infra: **Neon** (Postgres+pgvector) · **Redis Cloud** (Redis 8 + RediSearch, checkpoints) A. Upstash (plain cache/queues) · **Langfuse Cloud** — all free
 - Backend: `.venv` + `uvicorn` · LLM gateway: `litellm` pip process (Gemini → Groq fallback)
 - Frontend: `npm run dev`
 - Docker only on **EC2 + GitHub Actions** (Phase 10)
