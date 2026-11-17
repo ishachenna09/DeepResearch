@@ -31,6 +31,9 @@ def _to_out(job: ResearchJob) -> ResearchJobOut:
         notes_count=job.notes_count or 0,
         error=job.error,
         sources=job.sources,
+        rounds=job.rounds or 1,
+        tokens_used=job.tokens_used or 0,
+        critique=job.critique,
     )
 
 

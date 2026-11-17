@@ -1,0 +1,5 @@
+# Dev-only test dependencies. The runtime requirements stay in requirements.txt;
+# this file adds nothing the deployed image needs, so the container never grows
+# a test framework.
+#   C:\projects\DeepResearch\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+pytest>=8.3

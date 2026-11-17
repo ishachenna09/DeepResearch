@@ -48,7 +48,7 @@ DeepResearch/
 | **1** (done) | Question → **research plan** → human approves (HITL) | LangGraph `interrupt()`, checkpoints, **Redis** |
 | **2** (done) | `web_search` + `fetch_page` tools, content scanning | **MCP** servers, guardrails on untrusted web content |
 | **3** (done) | Parallel searcher fan-out, page cache, notes → pgvector | **Redis** cache/queues, LangGraph `Send` (map-reduce) |
-| **4** | Critic agent + bounded gap-filling loop + token budget | Eval-driven loop control, failure modes |
+| **4** (done) | Critic agent + bounded gap-filling loop + token budget | Eval-driven loop control, failure modes |
 | **5** | Writer streams report + **citation validator** | SSE streaming, claim→source verification |
 | **6** | Agents extracted as separate A2A services | **A2A** protocol, AgentCards, distributed agents |
 | **7** | Evals in CI + Langfuse traces + cost dashboard | DeepEval/Ragas/promptfoo, observability |
@@ -57,7 +57,7 @@ DeepResearch/
 | **10** | Deploy: GH Actions → Docker → EC2 + Vercel → **public URL** | CI/CD, TLS, containers (cloud only) |
 
 ## Local dev (no Docker on laptop)
-- Infra: **Neon** (Postgres+pgvector) · **Redis Cloud** (Redis 8 + RediSearch, checkpoints) A. Upstash (plain cache/queues) · **Langfuse Cloud** — all free
+- Infra: **Neon** (Postgres+pgvector) · **Redis Cloud** (Redis 8 + RediSearch: checkpoints *and* page cache) · **Langfuse Cloud** — all free
 - Backend: `.venv` + `uvicorn` · LLM gateway: `litellm[proxy]` in its OWN venv `.venv-litellm` (mcp 2.x vs mcp 1.x, see scripts/requirements-litellm.txt) (Gemini → Groq fallback)
 - Frontend: `npm run dev`
 - Docker only on **EC2 + GitHub Actions** (Phase 10)
@@ -96,7 +96,7 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 | Method | Path | What it does |
 |---|---|---|
 | `POST` | `/research` | plan the question (LLM) -> pauses at the HITL gate -> `awaiting_approval` |
-| `GET` | `/research/{id}` | status, plan, `notes_count`, `error`, per-page `sources` |
+| `GET` | `/research/{id}` | status, plan, `notes_count`, `error`, per-page `sources` (each tagged with its `round`), plus `rounds`, `tokens_used` and `critique` |
 | `POST` | `/research/{id}/plan/approve` | `approve` -> returns `researching` immediately (background fan-out); `reject` -> terminal |
 | `GET` | `/research/{id}/notes` | extracted notes (claim + verbatim quote + url) |
 | `POST` | `/research/{id}/notes/search` | semantic search: embeds the query, kNN over pgvector (`score` = 1 - cosine distance) |
@@ -107,13 +107,36 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 Status machine: `planning -> awaiting_approval -> researching -> notes_ready`
 (or `rejected` / `failed`). Poll `GET /research/{id}`; a run takes ~2-4 minutes.
 
+A run may contain **two bounded research rounds**: the initial fan-out, then a
+coverage critic that names up to 3 missing angles and re-searches them. The job
+reports `rounds` (1 = no gap-filling happened), `tokens_used` (measured provider
+usage, not an estimate) and `critique` (`sufficient`, `reason`, and the
+`stop_reason` that ended the loop: `sufficient` / `no_gaps` / `max_rounds` /
+`budget` / `no_progress` / `critic_error` / `no_notes`). If you edit the plan at
+the approval gate and remove angles, expect the critic to notice.
+
+## Tests (no network, no LLM)
+
+```powershell
+cd api
+..\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # once
+..\.venv\Scripts\python.exe -m pytest tests -q
+```
+
+The loop's four brakes are a pure function (`decide_stop`), so they are tested
+deterministically instead of relying on a live model to misbehave on cue.
+
 ## Verify a phase (one command)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase2.ps1   # MCP tools, extraction, SSRF
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase3.ps1   # fan-out, cache, pgvector
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase3.ps1 -SkipCache   # skip the 2nd run
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase4.ps1   # critic, gap round, tokens, dedupe
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase4.ps1 -SkipSecond  # skip the control run
 ```
+
+Pass `-Base http://localhost:8001/api/v1` when another app already owns `:8000`.
 
 Each script fails loudly with the exact HTTP status / detail, so a red line always
 means something real.

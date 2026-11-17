@@ -10,9 +10,14 @@ from app.api.v1 import api_router
 from app.core.cache import close_page_cache, init_page_cache
 from app.core.config import settings
 from app.core.embeddings import close_embeddings
+from app.core.log import configure_logging
 from app.core.observability import get_langfuse, shutdown_langfuse
 from app.db import engine
 from app.services.research_runner import cancel_all, reconcile_stale_jobs
+
+# Before anything else can log: without this, every logger.info() in the graph
+# is dropped and only warnings survive (that is how a critic run looked silent).
+configure_logging(settings.LOG_LEVEL)
 
 
 @asynccontextmanager

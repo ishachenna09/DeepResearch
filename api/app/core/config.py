@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "DeepResearch"
     APP_VERSION: str = "0.1.0"
     FRONTEND_URL: str = "http://localhost:5173"
+    # INFO is the right default: the graph logs one line per branch, per round
+    # and per critic verdict, which is the entire audit trail of a run.
+    LOG_LEVEL: str = "INFO"
 
     # ── Auth ─────────────────────────────────────────────
     SECRET_KEY: str
@@ -64,6 +67,14 @@ class Settings(BaseSettings):
     # notes: 60 s covers a slow-but-successful provider call, and _extract retries
     # once before giving up on the page.
     EXTRACT_TIMEOUT: int = 60
+
+    # ── Phase 4: critic + bounded gap-filling loop ────────
+    # Four independent brakes. A critic can always invent another gap, so the
+    # loop must terminate by construction, not by hope.
+    MAX_ROUNDS: int = 2                # 1 initial fan-out + 1 gap-filling round
+    MAX_GAP_QUESTIONS: int = 3         # cap per review (quota + latency)
+    MIN_NEW_NOTES_PER_ROUND: int = 3   # fewer than this = search space exhausted
+    BUDGET_STOP_RATIO: float = 0.9     # stop before the plan budget is exhausted
 
     # ── Observability (Langfuse Cloud) ───────────────────
     LANGFUSE_HOST: str = ""

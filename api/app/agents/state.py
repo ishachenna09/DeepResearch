@@ -22,9 +22,13 @@ class ResearchState(TypedDict, total=False):
     sub_question: str     # per-branch payload, set by Send() - not persisted after
     notes: Annotated[list[dict], operator.add]      # text + provenance, NO vectors
     sources: Annotated[list[dict], operator.add]    # per-page fetch metadata
-    stats: dict           # written once, by the join node
+    stats: dict           # written once per round, by the join node
+    # Phase 4: bounded gap-filling loop
+    round: int            # completed research rounds (1 = initial fan-out)
+    gaps: list[str]       # search-ready questions the critic wants answered
+    critique: dict        # {sufficient, reason, stop_reason} for this round
+    # Critical that this is additive: every branch reports what it spent.
+    tokens_used: Annotated[int, operator.add]
     # reserved for later phases
-    round: int
-    gaps: list[str]
     outline: list[dict]
     draft: str

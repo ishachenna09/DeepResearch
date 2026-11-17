@@ -78,6 +78,9 @@ async def _run(job_id: uuid.UUID, resume: dict) -> None:
         )
         job.notes_count = int(stored or 0)
         job.sources = result.get("sources") or []
+        job.rounds = int(result.get("round") or 1)
+        job.tokens_used = int(result.get("tokens_used") or 0)
+        job.critique = result.get("critique") or None
         if not job.plan and result.get("plan"):
             job.plan = result["plan"]
         job.status = "notes_ready"
@@ -87,7 +90,11 @@ async def _run(job_id: uuid.UUID, resume: dict) -> None:
             else None
         )
         await session.commit()
-        logger.info("research job %s done: %s notes | %s", job_id, job.notes_count, stats)
+        logger.info(
+            "research job %s done: %s notes, %s round(s), %s tokens, stop=%s | %s",
+            job_id, job.notes_count, job.rounds, job.tokens_used,
+            (job.critique or {}).get("stop_reason"), stats,
+        )
 
 
 async def cancel_all() -> None:

@@ -28,5 +28,9 @@ class ResearchJob(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     sources: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     notes_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Phase 4: bounded loop accounting
+    rounds: Mapped[int] = mapped_column(Integer, default=1)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    critique: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

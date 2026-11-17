@@ -46,8 +46,11 @@ foreach ($k in $loaded.Keys) { [Environment]::SetEnvironmentVariable($k, $loaded
 
 Write-Host "Loaded keys: $($loaded.Keys -join ', ')" -ForegroundColor Green
 try {
-    $versions = & $venvPython -c "from importlib.metadata import version; print(f'litellm {version(\"litellm\")} | mcp {version(\"mcp\")}')" 2>$null
-    Write-Host "Versions:    $versions" -ForegroundColor DarkGray
+    # PowerShell does not process backslash escapes inside double quotes, so the
+    # snippet below must not use escaped quotes (f-string with \" made this print
+    # nothing at all). Single quotes inside a double-quoted string are fine.
+    $versions = & $venvPython -c "import importlib.metadata as m; print('litellm', m.version('litellm'), '| mcp', m.version('mcp'))" 2>$null
+    if ($versions) { Write-Host "Versions:    $versions" -ForegroundColor DarkGray }
 } catch { }
 
 Set-Location $root

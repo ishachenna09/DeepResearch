@@ -5,6 +5,22 @@ from app.core.config import settings
 from app.core.observability import get_langfuse
 
 
+def usage_tokens(message) -> int:
+    """Total tokens from an AIMessage, tolerant of provider differences.
+
+    LiteLLM normalises usage into `usage_metadata`, but not every upstream
+    reports every key: some omit `total_tokens`, some report only input/output.
+    Never let accounting crash a research run - fall back to the sum, then 0.
+    """
+    meta = getattr(message, "usage_metadata", None) or {}
+    if isinstance(meta, dict):
+        total = meta.get("total_tokens")
+        if total:
+            return int(total)
+        return int(meta.get("input_tokens") or 0) + int(meta.get("output_tokens") or 0)
+    return 0
+
+
 def get_llm(temperature: float = 0.2, timeout: int = 90) -> ChatOpenAI:
     """LangChain client pointed at the LiteLLM proxy (OpenAI-compatible).
 
