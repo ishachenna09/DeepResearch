@@ -5,11 +5,15 @@ from app.core.config import settings
 from app.core.observability import get_langfuse
 
 
-def get_llm(temperature: float = 0.2) -> ChatOpenAI:
+def get_llm(temperature: float = 0.2, timeout: int = 90) -> ChatOpenAI:
     """LangChain client pointed at the LiteLLM proxy (OpenAI-compatible).
 
     All failover (Gemini -> Groq -> Gemini-Lite) happens proxy-side; the app
     only ever knows the virtual model name 'support-chat'.
+
+    `timeout` is the client-side ceiling per call. Keep it short for optional
+    work (per-page note extraction) so a slow provider costs one page, not the
+    whole job.
     """
     # get_langfuse() registers the process-wide Langfuse client with our keys;
     # CallbackHandler() then binds to that singleton (v5 reads it, no args).
@@ -20,7 +24,7 @@ def get_llm(temperature: float = 0.2) -> ChatOpenAI:
         base_url=f"{settings.LITELLM_BASE_URL}/v1",
         api_key=settings.LITELLM_MASTER_KEY,
         temperature=temperature,
-        timeout=90,
+        timeout=timeout,
         max_retries=0,   # proxy already retries/fails over; don't multiply retries
         callbacks=callbacks,
     )

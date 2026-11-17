@@ -7,9 +7,12 @@ from app.agents.checkpointer import close_checkpointer, init_checkpointer
 from app.agents.graph import init_graph
 from app.agents.mcp_client import close_toolbox, init_toolbox
 from app.api.v1 import api_router
+from app.core.cache import close_page_cache, init_page_cache
 from app.core.config import settings
+from app.core.embeddings import close_embeddings
 from app.core.observability import get_langfuse, shutdown_langfuse
 from app.db import engine
+from app.services.research_runner import cancel_all, reconcile_stale_jobs
 
 
 @asynccontextmanager
@@ -18,8 +21,13 @@ async def lifespan(app: FastAPI):
     await init_checkpointer()
     init_graph()
     await init_toolbox()    # spawns the MCP server (soft-fail, see mcp_client)
+    await init_page_cache()  # soft-fail: a dead cache means "fetch it again"
+    await reconcile_stale_jobs()  # background tasks do not survive a restart
     yield
+    await cancel_all()      # stop in-flight research before closing clients
     await close_toolbox()
+    await close_page_cache()
+    await close_embeddings()
     await close_checkpointer()
     shutdown_langfuse()
     await engine.dispose()

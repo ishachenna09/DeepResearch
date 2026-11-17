@@ -46,6 +46,25 @@ class Settings(BaseSettings):
     MAX_PAGE_CHARS: int = 12_000       # cap on extracted text handed to an LLM
     MCP_WEB_TOOL_MODULE: str = "app.mcp_tools.servers.web_tools"
 
+    # ── Phase 3: fan-out research + page cache + pgvector ─
+    # Embeddings go through the LiteLLM proxy (model_name "embeddings"), so the
+    # app never holds a provider SDK and the model can be swapped in one YAML line.
+    EMBEDDINGS_MODEL: str = "embeddings"
+    # gemini-embedding-2 emits 3072 dims natively. 1536 is the MRL truncation we
+    # request on purpose: it fits pgvector's `vector` type (HNSW max 2000 dims),
+    # so we get an ANN index without halfvec casting. Measured, not assumed.
+    EMBED_DIM: int = 1536
+    EMBED_BATCH_SIZE: int = 32         # notes per /v1/embeddings request
+    CACHE_TTL_SECONDS: int = 6 * 3600  # Redis Cloud free tier is 30 MB shared
+    SEARCH_RESULTS: int = 5            # Tavily hits considered per sub-question
+    TOP_K_PAGES: int = 3               # pages actually fetched + read per branch
+    MAX_BRANCHES: int = 8              # hard cap on parallel Send fan-out
+    MAX_NOTES_PER_PAGE: int = 5        # keeps the note prompt small and focused
+    # Per-page extraction is throwaway work, but a discarded page means missing
+    # notes: 60 s covers a slow-but-successful provider call, and _extract retries
+    # once before giving up on the page.
+    EXTRACT_TIMEOUT: int = 60
+
     # ── Observability (Langfuse Cloud) ───────────────────
     LANGFUSE_HOST: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""

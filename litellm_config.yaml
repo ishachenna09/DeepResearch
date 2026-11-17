@@ -22,6 +22,13 @@ model_list:
       model: gemini/gemini-3.5-flash-lite
       api_key: os.environ/GEMINI_API_KEY
 
+  # Embeddings (Phase 3): notes are embedded here, not in the app, so the model
+  # and its API key never leak into the API container. One entry, one key.
+  - model_name: embeddings
+    litellm_params:
+      model: gemini/gemini-embedding-2
+      api_key: os.environ/GEMINI_API_KEY
+
 litellm_settings:
   drop_params: true          # strip params the upstream model doesn't accept
   request_timeout: 60

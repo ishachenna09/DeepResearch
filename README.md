@@ -47,7 +47,7 @@ DeepResearch/
 | **0** (done) | Auth shell (reuse DeepSearch Phase 0) + Tavily key | JWT, SSE plumbing |
 | **1** (done) | Question → **research plan** → human approves (HITL) | LangGraph `interrupt()`, checkpoints, **Redis** |
 | **2** (done) | `web_search` + `fetch_page` tools, content scanning | **MCP** servers, guardrails on untrusted web content |
-| **3** | Parallel searcher fan-out, page cache, notes → pgvector | **Redis** cache/queues, LangGraph `Send` (map-reduce) |
+| **3** (done) | Parallel searcher fan-out, page cache, notes → pgvector | **Redis** cache/queues, LangGraph `Send` (map-reduce) |
 | **4** | Critic agent + bounded gap-filling loop + token budget | Eval-driven loop control, failure modes |
 | **5** | Writer streams report + **citation validator** | SSE streaming, claim→source verification |
 | **6** | Agents extracted as separate A2A services | **A2A** protocol, AgentCards, distributed agents |
@@ -86,3 +86,34 @@ Verify:
 
 Then: `scripts\start_litellm.ps1` (terminal 1), `scripts\start_api.ps1` (terminal 2),
 `npm run dev` (terminal 3, from `frontend/`).
+
+---
+
+## API (v1)
+
+Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else.
+
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/research` | plan the question (LLM) -> pauses at the HITL gate -> `awaiting_approval` |
+| `GET` | `/research/{id}` | status, plan, `notes_count`, `error`, per-page `sources` |
+| `POST` | `/research/{id}/plan/approve` | `approve` -> returns `researching` immediately (background fan-out); `reject` -> terminal |
+| `GET` | `/research/{id}/notes` | extracted notes (claim + verbatim quote + url) |
+| `POST` | `/research/{id}/notes/search` | semantic search: embeds the query, kNN over pgvector (`score` = 1 - cosine distance) |
+| `GET` | `/tools` | MCP tool schema advertised over stdio |
+| `POST` | `/tools/search`, `/tools/fetch` | raw search / page fetch + injection scan |
+| `GET` | `/healthz`, `/health/llm` | dependency health; LLM reports which tier served it |
+
+Status machine: `planning -> awaiting_approval -> researching -> notes_ready`
+(or `rejected` / `failed`). Poll `GET /research/{id}`; a run takes ~2-4 minutes.
+
+## Verify a phase (one command)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase2.ps1   # MCP tools, extraction, SSRF
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase3.ps1   # fan-out, cache, pgvector
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase3.ps1 -SkipCache   # skip the 2nd run
+```
+
+Each script fails loudly with the exact HTTP status / detail, so a red line always
+means something real.
