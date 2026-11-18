@@ -43,14 +43,14 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">Phase 0 — System Status</h1>
+      <h1 className="text-xl font-bold">System status</h1>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900 p-6">
         <h2 className="mb-4 font-semibold">Infrastructure</h2>
         <div className="flex flex-wrap gap-6 text-sm">
           <div className="flex items-center gap-2">API <Badge value={health?.api} /></div>
           <div className="flex items-center gap-2">Postgres (Neon) <Badge value={health?.postgres} /></div>
-          <div className="flex items-center gap-2">Redis (Upstash) <Badge value={health?.redis} /></div>
+          <div className="flex items-center gap-2">Redis (checkpoints + cache) <Badge value={health?.redis} /></div>
         </div>
       </section>
 

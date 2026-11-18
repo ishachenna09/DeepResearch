@@ -34,7 +34,7 @@ export default function Login() {
         onSubmit={submit}
         className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900 p-8"
       >
-        <h1 className="mb-6 text-2xl font-bold">Sign in to DeepSearch</h1>
+        <h1 className="mb-6 text-2xl font-bold">Sign in to DeepResearch</h1>
         {error && (
           <p className="mb-4 rounded bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>
         )}

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from langgraph.types import Command
 from sqlalchemy import select
 
@@ -11,7 +11,7 @@ from app.schemas.research import (
     CreateResearchIn,
     PlanDecisionIn,
     ResearchJobOut,
-    ResearchPlan,
+    ResearchPlanOut,
 )
 from app.services.research_runner import is_running, spawn_research
 
@@ -26,7 +26,7 @@ def _to_out(job: ResearchJob) -> ResearchJobOut:
     return ResearchJobOut(
         job_id=job.id,
         question=job.question,
-        plan=ResearchPlan(**job.plan) if job.plan else None,
+        plan=ResearchPlanOut(**job.plan) if job.plan else None,
         status=job.status,
         notes_count=job.notes_count or 0,
         error=job.error,
@@ -34,6 +34,8 @@ def _to_out(job: ResearchJob) -> ResearchJobOut:
         rounds=job.rounds or 1,
         tokens_used=job.tokens_used or 0,
         critique=job.critique,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
     )
 
 
@@ -78,6 +80,30 @@ async def create_research(
     await session.commit()
     await session.refresh(job)
     return _to_out(job)
+
+
+@router.get("", response_model=list[ResearchJobOut])
+async def list_research(
+    user: CurrentUser,
+    session: SessionDep,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+) -> list[ResearchJobOut]:
+    """Newest first, owner-scoped: the UI's job list and (later) the report library."""
+    jobs = (
+        (
+            await session.execute(
+                select(ResearchJob)
+                .where(ResearchJob.user_id == user.id)
+                .order_by(ResearchJob.created_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [_to_out(job) for job in jobs]
 
 
 @router.get("/{job_id}", response_model=ResearchJobOut)

@@ -31,7 +31,7 @@ DeepResearch/
 │   ├── alembic/                # migrations
 │   └── tests/                  # unit | integration | graph | e2e
 ├── frontend/                   # React + Vite + Tailwind
-│   └── src/components/{plan/, report/, sources/, layout/}
+│   └── src/                    # pages/{Research,JobDetail,Dashboard} · components/research/ · hooks/useJob.ts · lib/{api,research,types}.ts
 ├── evals/                      # promptfoo CI regression gate
 ├── scripts/                    # seed_questions.py, demo.ps1
 ├── infra/                      # caddy, ec2 deploy, CI workflows
@@ -49,6 +49,7 @@ DeepResearch/
 | **2** (done) | `web_search` + `fetch_page` tools, content scanning | **MCP** servers, guardrails on untrusted web content |
 | **3** (done) | Parallel searcher fan-out, page cache, notes → pgvector | **Redis** cache/queues, LangGraph `Send` (map-reduce) |
 | **4** (done) | Critic agent + bounded gap-filling loop + token budget | Eval-driven loop control, failure modes |
+| **4.5** (done) | Research UI: ask → edit/approve plan → live run → evidence + semantic search | Polling vs streaming, HITL UX, input vs output schemas |
 | **5** | Writer streams report + **citation validator** | SSE streaming, claim→source verification |
 | **6** | Agents extracted as separate A2A services | **A2A** protocol, AgentCards, distributed agents |
 | **7** | Evals in CI + Langfuse traces + cost dashboard | DeepEval/Ragas/promptfoo, observability |
@@ -96,7 +97,8 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 | Method | Path | What it does |
 |---|---|---|
 | `POST` | `/research` | plan the question (LLM) -> pauses at the HITL gate -> `awaiting_approval` |
-| `GET` | `/research/{id}` | status, plan, `notes_count`, `error`, per-page `sources` (each tagged with its `round`), plus `rounds`, `tokens_used` and `critique` |
+| `GET` | `/research` | the caller's jobs, newest first (`limit`/`offset`) - powers the research list |
+| `GET` | `/research/{id}` | status, plan, `notes_count`, `error`, per-page `sources` (each tagged with its `round`), plus `rounds`, `tokens_used`, `critique` and `created_at`/`updated_at` |
 | `POST` | `/research/{id}/plan/approve` | `approve` -> returns `researching` immediately (background fan-out); `reject` -> terminal |
 | `GET` | `/research/{id}/notes` | extracted notes (claim + verbatim quote + url) |
 | `POST` | `/research/{id}/notes/search` | semantic search: embeds the query, kNN over pgvector (`score` = 1 - cosine distance) |
@@ -114,6 +116,30 @@ usage, not an estimate) and `critique` (`sufficient`, `reason`, and the
 `stop_reason` that ended the loop: `sufficient` / `no_gaps` / `max_rounds` /
 `budget` / `no_progress` / `critic_error` / `no_notes`). If you edit the plan at
 the approval gate and remove angles, expect the critic to notice.
+
+## Frontend (research UI)
+
+```powershell
+cd frontend
+npm run dev          # http://localhost:5173 (Vite reads .env* files, not process env)
+```
+
+Routes: `/` ask a question + your jobs · `/jobs/:jobId` plan approval, live run,
+evidence · `/system` health badges.
+
+- **The job page is a state machine mirroring the API's**: `planning` skeleton →
+  `PlanEditor` (`awaiting_approval`) → live `RunProgress` (`researching`) → critique card +
+  `SourcesPanel` + `NotesPanel` (`notes_ready`). Anything else (`rejected`, `failed`, legacy
+  rows) renders an explicit explanation rather than an empty page.
+- **Polling, not SSE (for now).** `hooks/useJob.ts` polls every 2 s while work is happening and
+  15 s while paused at the gate, and stops on a terminal status. A job only has ~5 state changes
+  over 1-4 minutes, so polling is smaller and resumable; Phase 5 swaps that one hook for an
+  `EventSource` when the payload becomes a token stream.
+- **The plan editor mirrors server validation** (3-7 sub-questions, budget 50k-400k) so Approve
+  explains itself instead of waiting for a 422. `angles`/`constraints` are chip editors because
+  planner items contain commas - a comma-separated field would mangle them.
+- If another app already owns `:8000`, put `VITE_API_BASE_URL=http://localhost:8001/api/v1` in
+  `frontend/.env.local` (gitignored) and run uvicorn with `--port 8001`.
 
 ## Tests (no network, no LLM)
 
@@ -137,6 +163,10 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_phase4.ps1 -SkipSecond  
 ```
 
 Pass `-Base http://localhost:8001/api/v1` when another app already owns `:8000`.
+
+There is no UI verify script yet - the UI is verified by `npm run build` plus a manual
+run of the flow above (`docs/TECH_DECISIONS.md` § Phase 4.5 evidence records the numbers
+from the last one).
 
 Each script fails loudly with the exact HTTP status / detail, so a red line always
 means something real.

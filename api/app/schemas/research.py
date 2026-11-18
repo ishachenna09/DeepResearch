@@ -1,11 +1,19 @@
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
 class ResearchPlan(BaseModel):
-    """What the planner LLM must produce. Keep it strict — it's a contract."""
+    """What the planner LLM must produce. Keep it strict — it's a contract.
+
+    STRICT ON PURPOSE, and only for *input*: this is what the planner returns and
+    what a human may submit at the approval gate. Do not reuse it to serialize
+    stored rows - a range tightened today invalidates every plan written
+    yesterday (that is exactly how a `budget_tokens >= 50_000` change turned
+    `GET /research` into a 500 for pre-Phase-4 jobs).
+    """
     question: str
     sub_questions: list[str] = Field(min_length=3, max_length=7)
     angles: list[str] = Field(default_factory=list)
@@ -15,6 +23,19 @@ class ResearchPlan(BaseModel):
     # default leaves room for one gap round and still trips the brake only on
     # pathological fan-out.
     budget_tokens: int = Field(ge=50_000, le=400_000, default=150_000)
+
+
+class ResearchPlanOut(BaseModel):
+    """How a stored plan is returned. Tolerant by design.
+
+    Rows written under an older contract must stay readable: never apply
+    today's input constraints to yesterday's data.
+    """
+    question: str
+    sub_questions: list[str] = Field(default_factory=list)
+    angles: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    budget_tokens: int = 150_000
 
 
 class CreateResearchIn(BaseModel):
@@ -29,7 +50,7 @@ class PlanDecisionIn(BaseModel):
 class ResearchJobOut(BaseModel):
     job_id: uuid.UUID
     question: str
-    plan: ResearchPlan | None
+    plan: ResearchPlanOut | None
     status: str
     notes_count: int = 0
     error: str | None = None
@@ -39,6 +60,9 @@ class ResearchJobOut(BaseModel):
     rounds: int = 1
     tokens_used: int = 0
     critique: dict | None = None
+    # The UI needs a clock: "2 min ago", elapsed run time, sorting.
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
