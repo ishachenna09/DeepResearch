@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
+from sqlalchemy.orm import defer
 
 from app.core.deps import CurrentUser, SessionDep
 from app.core.embeddings import EmbeddingError, embed_texts
@@ -39,6 +40,12 @@ async def list_notes(
         (
             await session.execute(
                 select(SourceNote)
+                # `embedding` is 1536 floats per row and is never in the
+                # response schema - but SQLAlchemy selects every mapped column
+                # by default. Measured on 52 notes against a remote Postgres:
+                # 3187 ms with the vector, 455 ms without. Nearly all of that
+                # was wire time for data the client cannot even see.
+                .options(defer(SourceNote.embedding))
                 .where(SourceNote.job_id == job.id)
                 .order_by(SourceNote.sub_question, SourceNote.created_at)
                 .limit(limit)

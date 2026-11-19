@@ -76,6 +76,24 @@ class Settings(BaseSettings):
     MIN_NEW_NOTES_PER_ROUND: int = 3   # fewer than this = search space exhausted
     BUDGET_STOP_RATIO: float = 0.9     # stop before the plan budget is exhausted
 
+    # ── Phase 5: cited report writer + SSE stream ─────────
+    # The writer sees a numbered source list, not the whole corpus: 30 notes is
+    # ~1.5k prompt tokens and still more evidence than a 900-word report can use.
+    REPORT_MAX_CITATIONS: int = 30
+    # `max_tokens` counts THINKING tokens on a reasoning model (Gemini 3 Flash),
+    # so a cap sized for prose alone truncates the brief mid-sentence. Measured:
+    # at 1800 the same prompt produced 622, 274 and 34 words on three runs.
+    REPORT_MAX_TOKENS: int = 2600      # thinking headroom + ~900 words of prose
+    # One retry gets a bigger cap - thinking length is not deterministic, and a
+    # truncated draft is unreadable rather than merely short.
+    REPORT_RETRY_MAX_TOKENS: int = 4000
+    # One long streaming call: the ceiling must cover first-token latency plus
+    # the whole generation, not a single round trip.
+    REPORT_TIMEOUT: int = 180
+    # Token stream lifetime in Redis. Reconnecting reads replay from id 0, so
+    # this only has to outlive a browser session - not the report itself.
+    REPORT_STREAM_TTL: int = 3600
+
     # ── Observability (Langfuse Cloud) ───────────────────
     LANGFUSE_HOST: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""

@@ -108,3 +108,53 @@ export interface NoteSearchResponse {
   count: number;
   results: Note[];
 }
+
+/* ── Phase 5: the cited report ───────────────────────────────────────────── */
+
+/** Independent of the job's status: a job stays `notes_ready` while it regenerates. */
+export type ReportStatus = "generating" | "ready" | "failed";
+
+/** One numbered source the writer was allowed to cite. `index` is the `[n]`. */
+export interface Citation {
+  index: number;
+  note_id: string;
+  url: string;
+  title?: string | null;
+  claim: string;
+  quote?: string | null;
+  confidence: string;
+  sub_question: string;
+}
+
+/** Deterministic citation audit - no LLM judge, so these numbers are stable. */
+export interface ReportValidation {
+  markers: number;
+  valid_markers: number;
+  unknown_markers: number[];
+  precision: number;
+  sentences: number;
+  cited_sentences: number;
+  coverage: number;
+  unused_sources: number;
+  words: number;
+  /** A draft was replaced by the one second attempt. */
+  repaired: boolean;
+  /** The provider stopped at the token cap - the text may end mid-sentence. */
+  truncated: boolean;
+  /** No marker in the text resolves to a source: prose, not traceable evidence. */
+  uncited: boolean;
+}
+
+export interface Report {
+  report_id: string;
+  job_id: string;
+  status: ReportStatus;
+  markdown: string;
+  citations: Citation[];
+  validation: ReportValidation | null;
+  tokens_used: number;
+  model: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}

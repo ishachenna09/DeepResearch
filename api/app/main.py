@@ -12,7 +12,9 @@ from app.core.config import settings
 from app.core.embeddings import close_embeddings
 from app.core.log import configure_logging
 from app.core.observability import get_langfuse, shutdown_langfuse
+from app.core.streams import close_report_stream, init_report_stream
 from app.db import engine
+from app.services.report_runner import cancel_all_reports, reconcile_stale_reports
 from app.services.research_runner import cancel_all, reconcile_stale_jobs
 
 # Before anything else can log: without this, every logger.info() in the graph
@@ -27,11 +29,15 @@ async def lifespan(app: FastAPI):
     init_graph()
     await init_toolbox()    # spawns the MCP server (soft-fail, see mcp_client)
     await init_page_cache()  # soft-fail: a dead cache means "fetch it again"
+    await init_report_stream()  # soft-fail: reports generate without live streaming
     await reconcile_stale_jobs()  # background tasks do not survive a restart
+    await reconcile_stale_reports()
     yield
     await cancel_all()      # stop in-flight research before closing clients
+    await cancel_all_reports()
     await close_toolbox()
     await close_page_cache()
+    await close_report_stream()
     await close_embeddings()
     await close_checkpointer()
     shutdown_langfuse()

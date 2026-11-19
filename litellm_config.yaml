@@ -1,6 +1,14 @@
 # LiteLLM proxy config — SAME file used locally (pip process) and on EC2 (container).
-# 3-tier fallback chain: Gemini Flash -> Groq GPT-OSS 120B -> Gemini Flash-Lite.
+# 3-tier fallback chain: Gemini Flash -> Gemini Flash-Lite -> Groq GPT-OSS 120B.
 # Fails over on ANY error: rate limit, quota, context overflow, 5xx, timeout, model retired.
+#
+# WHY Flash-Lite sits ABOVE Groq (changed Nov 2026, measured):
+#   The chain is not just "stay up" - Gemini 3.8 Flash going 429 on the free tier
+#   failed over to Groq, and Groq wrote a 644-word brief with ZERO [n] citation
+#   markers, which the citation audit flags as uncited. Same prompt on Flash-Lite:
+#   639 ms, correct markers, clean prose. So tier order is chosen to fail over on
+#   *capacity* while preserving the output contract, and the cross-provider tier is
+#   last. Cost of this order: a Gemini-wide outage skips two tiers before Groq.
 #
 # NOTE (Oct 2026): Groq RETIRED llama-3.3-70b-versatile on 2026-08-16 for free/dev
 # tiers — replacement is openai/gpt-oss-120b. Hosted model IDs change: verify this
@@ -12,15 +20,15 @@ model_list:
       model: gemini/gemini-3.8-flash
       api_key: os.environ/GEMINI_API_KEY
 
-  - model_name: support-chat-backup     # failover #1: Groq (different provider)
-    litellm_params:
-      model: groq/openai/gpt-oss-120b   # groq/ prefix + model id (slash kept after prefix)
-      api_key: os.environ/GROQ_API_KEY
-
-  - model_name: support-chat-tertiary   # failover #2: same provider, different quota pool
+  - model_name: support-chat-lite       # failover #1: same provider, other quota pool
     litellm_params:
       model: gemini/gemini-3.5-flash-lite
       api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: support-chat-groq       # failover #2: different provider (last resort)
+    litellm_params:
+      model: groq/openai/gpt-oss-120b   # groq/ prefix + model id (slash kept after prefix)
+      api_key: os.environ/GROQ_API_KEY
 
   # Embeddings (Phase 3): notes are embedded here, not in the app, so the model
   # and its API key never leak into the API container. One entry, one key.
@@ -31,10 +39,30 @@ model_list:
 
 litellm_settings:
   drop_params: true          # strip params the upstream model doesn't accept
-  request_timeout: 60
+  # Must exceed the app's REPORT_TIMEOUT (180 s): a cold Gemini can take 60-120 s
+  # to emit its first token, and a proxy timeout shorter than the client's would
+  # kill generations the app is still waiting for.
+  request_timeout: 200
   num_retries: 1
   fallbacks:
-    - support-chat: ["support-chat-backup", "support-chat-tertiary"]
+    - support-chat: ["support-chat-lite", "support-chat-groq"]
+
+router_settings:
+  # Retrying a 429 is pointless (the quota is gone) and actively harmful: LiteLLM
+  # honours the provider's retryDelay and waits, so a quota-exhausted primary held
+  # the request for the whole request_timeout before failing over. Measured:
+  # a single "reply ok" took >45 s and returned nothing. With this policy a rate
+  # limit fails over on the first attempt, while a transient 5xx or timeout still
+  # gets one retry.
+  retry_policy:
+    RateLimitErrorRetries: 0
+    AuthenticationErrorRetries: 0
+    TimeoutErrorRetries: 1
+    InternalServerErrorRetries: 1
+  # One failure is enough to park a deployment: 30 s of cooldown is far cheaper
+  # than re-discovering a dead primary on every request the app makes.
+  allowed_fails: 1
+  cooldown_time: 30
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY   # app authenticates to proxy with this

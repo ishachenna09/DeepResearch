@@ -15,6 +15,7 @@ import PlanEditor from "../components/research/PlanEditor";
 import RunProgress from "../components/research/RunProgress";
 import SourcesPanel from "../components/research/SourcesPanel";
 import StatusBadge from "../components/research/StatusBadge";
+import ReportPanel from "../components/report/ReportPanel";
 import { useJob } from "../hooks/useJob";
 import { timeAgo } from "../lib/format";
 import type { JobStatus } from "../lib/types";
@@ -99,6 +100,11 @@ export default function JobDetail() {
       )}
 
       {(job.status === "researching" || job.status === "notes_ready") && <RunProgress job={job} />}
+
+      {/* The report sits above the raw evidence: it is the answer, the notes are the proof. */}
+      {job.status === "notes_ready" && (
+        <ReportPanel jobId={job.job_id} noteCount={job.notes_count} />
+      )}
 
       {job.status === "notes_ready" && <NotesPanel jobId={job.job_id} />}
 

@@ -9,6 +9,7 @@
 import axios from "axios";
 
 import api from "./api";
+import { shared } from "./inflight";
 import type { NoteSearchResponse, NotesResponse, ResearchJob, ResearchPlan } from "./types";
 
 /** FastAPI puts the reason in `detail`; axios puts transport errors elsewhere. */
@@ -41,8 +42,9 @@ export async function createJob(question: string): Promise<ResearchJob> {
 }
 
 export async function getJob(jobId: string): Promise<ResearchJob> {
-  const { data } = await api.get<ResearchJob>(`/research/${jobId}`);
-  return data;
+  return shared(`job:${jobId}`, () =>
+    api.get<ResearchJob>(`/research/${jobId}`).then((response) => response.data),
+  );
 }
 
 /** Approve (optionally with an edited plan) or reject. Returns the new job state. */
@@ -56,8 +58,9 @@ export async function decidePlan(
 }
 
 export async function listNotes(jobId: string, limit = 200): Promise<NotesResponse> {
-  const { data } = await api.get<NotesResponse>(`/research/${jobId}/notes`, { params: { limit } });
-  return data;
+  return shared(`notes:${jobId}:${limit}`, () =>
+    api.get<NotesResponse>(`/research/${jobId}/notes`, { params: { limit } }).then((r) => r.data),
+  );
 }
 
 export async function searchNotes(

@@ -203,3 +203,71 @@ One full UI-driven run - the plan was edited in the browser, not via PowerShell:
 | legacy rows | orphan `approved`, `plan=null` failure and two `rejected` jobs each render an explanation, not a blank page |
 | build | `npm run build` (`tsc -b && vite build`) clean: 262 kB JS / 86 kB gzip |
 
+## Phase 5 - cited report + SSE stream
+
+The report is a **separate resource** (`reports`, unique `job_id`), not a graph node: a job
+stays `notes_ready` while its report regenerates, and overwriting in place is the seam
+Phase 6's A2A path needs.
+
+| Decision | Chosen | Alternatives considered | Why rejected |
+|---|---|---|---|
+| **Report as a resource** | `reports` table, `id`/`job_id` (unique)/`status`/`markdown`/`citations`/`validation`/`model`; `POST` regenerates by overwrite | A 6th graph node; a field on the job | A node would re-run the whole research pipeline to rewrite prose, and a job column would make "regenerate" destroy the only copy mid-flight. A resource with its own status lets a report fail without touching the notes - the research is the expensive part. |
+| **Citation registry before generation** | `build_registry()` numbers ≤30 notes (round-robin across sub-questions *and* hosts) and the prompt may only cite those numbers | Let the model cite URLs/notes freely, then resolve afterwards | Free-form citation means the app must decide what the model "meant" - unfalsifiable. With a pre-numbered list, every `[n]` either resolves or is provably invented, and `citations_for()` emits exactly the sources with a marker actually used: traceability by construction. |
+| **Registry balance** | Nested round-robin: one note per sub-question per round, and within a sub-question the least-used host | First N by confidence | Measured: "first N" gave 10 of 30 slots to one site, so one article's framing became the report's framing. Host rotation brought it to 9 hosts, max 5 of 30, while keeping sub-questions at 5/5/5/4/4/4/3. |
+| **Audit** | Deterministic: precision (valid/markers), coverage (cited sentences/sentences), `unknown_markers`, `unused_sources` | An LLM judge scoring the report | A judge costs a call per report, is nondeterministic, and cannot be unit-tested. These four numbers are pure functions of the text and the registry, so they are testable and identical on replay. |
+| **Coverage unit** | Sentences, not paragraphs | Paragraph blocks | Block-level scoring silently returned `0/0` when the writer used single newlines: headings and paragraphs collapsed into one block starting with `#`. A sentence survives any formatting the model chooses. |
+| **Stream transport** | Redis Streams (`XADD`/`XREAD` + `MAXLEN` + TTL), replayable with `Last-Event-ID` | Redis pub/sub; polling only | Pub/sub cannot replay: a tab opened mid-generation would see the tail of a report with no beginning. Streams make "refresh mid-report" and "second tab" the same code path. Polling stays as the fallback when Redis is down. |
+| **Client transport** | `fetch` + hand-parsed SSE frames | `EventSource`; `sse-starlette` | `EventSource` cannot send `Authorization`, so the JWT would go in the query string (logs, history). The wire format is four field names, and hand-parsing keeps the `id:` cursor - the one thing a library would hide - explicit. |
+| **Markdown rendering** | ~120-line block renderer; `[n]` -> chip linking to `#cite-n`, unknown numbers red | `react-markdown` + plugins | ~80 kB for a subset we control, and a renderer makes `dangerouslySetInnerHTML` tempting. On model output that is never acceptable; here every string renders as text. |
+| **Second attempt** | One bounded retry when `needs_repair()` (truncated OR `markers == 0` OR `precision < 0.9`); keep the better draft by `(not truncated, precision, coverage, words)` | Fail the report; retry until valid | Unbounded retries on a free tier is how you burn a daily quota in one click. Scoring both drafts means a bad retry can never make the result worse - verified live: a 0-marker draft was replaced by a 618-word, 94%-coverage one. |
+| **Uncited is a flag, not an error** | `validation.uncited = (valid_markers == 0)`, red "no citations" badge | Treat as `failed`; render it like a normal report | The prose is still useful and the work is done; failing discards it. But it is not evidence, so it must not look like the cited briefs - the badge is the difference between "we verified this" and "we did not". |
+| **Record the served model** | `reports.model` = the upstream that answered (`meta["model_name"]`), not the proxy alias | Store the alias we asked for | A report claimed `support-chat` while `openai/gpt-oss-120b` wrote every word. Without this field a silent failover is undetectable from the data. |
+
+### Phase 5 incidents (each measured, each an interview story)
+
+1. **Thinking tokens are charged to `max_tokens`.** `gemini-3.8-flash` at `REPORT_MAX_TOKENS=1800`
+   produced 622, then 274, then **34 words** on the same prompt, the last ending mid-sentence; the
+   log showed `finish=length`. Fix: 2600 for the stream, 4000 for the retry, and `finish_reason` is
+   captured per chunk so `truncated` is a fact rather than a guess.
+2. **A blocking read is a quiet socket.** `socket_timeout=5` against `XREAD BLOCK 8000` raised
+   `TimeoutError` on every idle gap and logged "streaming disabled" while the report generated
+   fine. Fix: `socket_timeout = BLOCK_MS // 1000 + 20`.
+3. **Retry path `NameError: settings`.** The second attempt was written but never imported
+   `settings`, so the audit flagged `truncated=True` and shipped a 706-word cut-off brief. The
+   audit behaved correctly; the fix was one import - and the lesson is that the happy path is not
+   the tested path until it has actually run.
+4. **Silent failover changed the output contract.** Gemini returned **429**, LiteLLM failed over to
+   Groq, and Groq wrote a 644-word brief with **zero** `[n]` markers. Nothing failed; the report was
+   simply uncited. Fixes: record the served model, flag `uncited`, and reorder the chain (below).
+5. **Retrying a 429 is worse than not retrying.** With `request_timeout: 200`, LiteLLM honoured the
+   provider's `retryDelay` and held a request >45 s with no output before failing over. Fix:
+   `router_settings.retry_policy` - `RateLimitErrorRetries: 0`, transient 5xx/timeout keep one retry,
+   plus `allowed_fails: 1` / `cooldown_time: 30`. Failover now takes 1.6 s, then 0.8 s on cooldown.
+6. **The page was slow, not stuck.** "Checking for a report…" for 20-30 s traced to (a) `GET /notes`
+   selecting the 1536-dim `embedding` column the schema never returns - **3187 ms vs 455 ms** for 52
+   notes, (b) two sequential round trips per request at **~455 ms each** to a database in another
+   region (`/report` now uses one join), and (c) StrictMode double-mounting every effect, so each GET
+   fired **4x**. Fixes: `defer(SourceNote.embedding)`, one joined query, and a shared in-flight
+   promise (`lib/inflight.ts`): 4 -> 1 request, first paint 20 s+ -> **4.5 s**.
+7. **No timeout means "loading" forever.** Axios defaults to `timeout: 0`. A stalled socket left the
+   panel on a skeleton with no error and no retry - which is why "click Refresh" appeared to fix it.
+   Now `getReport` times out at 20 s, and the panel shows elapsed seconds, a hint, and a retry.
+
+### Phase 5 verification evidence
+
+`scripts/verify_phase5.ps1` - 10 sections, all passing against the live stack:
+
+| what | value |
+|---|---|
+| guard | `POST /report` on an `awaiting_approval` job -> **409**, message names `notes_ready` |
+| idempotence | second `POST` attaches to the same report id while generating |
+| stream | `text/event-stream`, `status` event carries `sources=30, notes=52`, ~1000 token frames, replay from `Last-Event-ID` resumed mid-stream and still reached `done` |
+| audit (stored) | 611 words, 25 markers, precision **1.0**, coverage **0.73** (16/22 sentences), 5 unused sources |
+| traceability | every citation maps to a stored note (`url` + `note_id`); **9 distinct sites** |
+| regeneration | same report id, overwritten in place |
+| guards | 409 / 404 / 401 all behave |
+| tests | **29** deterministic tests (`tests/test_report_citations.py`) |
+| frontend | `npm run build` clean: **279 kB JS / 90 kB gzip** (+1.9 kB; no `react-markdown`) |
+| browser | fresh load renders the report in **4.5 s** with no click; 1 `GET /report`; 30 chips -> 23 source rows, all anchors resolve, 0 unknown markers; regenerate streams 0 -> 429 -> 4214 chars |
+| best observed report | 618 words, 29 citations, precision **1.0**, coverage **0.94**, produced by the second attempt after a 0-marker first draft |
+
