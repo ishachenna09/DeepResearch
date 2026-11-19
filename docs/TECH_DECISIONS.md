@@ -50,7 +50,8 @@ Rule for every answer: **decision → alternative → why we chose it → the tr
 - **"Why poll instead of SSE on the job page?"** — "The job only has ~5 coarse state changes over 1-4 minutes. A 2 s poll is one small `GET` and survives every proxy and every laptop sleep. SSE is for the *report* in Phase 5, where the payload is a token stream rather than an enum."
 - **"Why two plan schemas?"** — "One is an input contract, one is a storage contract. Tightening a validation range for today's planner must never 500 on a row written last week - that is exactly how `budget_tokens >= 50_000` broke the job list."
 - **"Why MCP *and* A2A?"** — "Different layers: MCP standardizes *tools* (my search tool is reusable by any client); A2A standardizes *agents* (my writer is a discoverable service). One protocol can't do both."
-- **"Why Redis over just Postgres?"** — "Postgres is durable truth; Redis is ephemeral speed — checkpoints for crash recovery, cache to dedupe fetches, pub/sub to fan out stream tokens without polling the DB."
+- **"Why Redis over just Postgres?"** — "Postgres is durable truth; Redis is ephemeral speed — checkpoints for crash recovery, a page cache to dedupe fetches, and report token streams that cost nothing to replay."
+- **"Why Redis Streams, not pub/sub?"** — "Pub/sub is fire-and-forget: a tab opened mid-report sees the tail of an answer with no beginning. A Stream keeps the last N entries, so a refresh or a second tab resumes from `Last-Event-ID` on the same code path as a live reader."
 - **"How do you know it's correct?"** — "Citation precision ≥0.90 on a golden set, gated in CI; every claim links to cached source text so a human can verify."
 - **"Why not OpenAI?"** — "No usable free tier; we're on Gemini (1M context, free) with Groq failover behind LiteLLM — one config line to swap."
 
