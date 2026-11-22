@@ -29,3 +29,9 @@ trafilatura>=2.3.1
 
 # Phase 3 - embeddings + vector search
 pgvector>=0.5
+
+# Phase 6 - writer + critic exposed as A2A agents
+# Pinned exactly: the server side of a wire protocol is the one place where a
+# silent minor upgrade can change the frame shape every client depends on.
+# `[fastapi]` pulls starlette + sse-starlette, which the JSON-RPC routes need.
+a2a-sdk[fastapi]==1.3.1

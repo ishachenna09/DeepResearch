@@ -9,7 +9,7 @@ router = APIRouter(tags=["health"])
 
 @router.get("/healthz")
 async def healthz(session: SessionDep) -> dict:
-    """Liveness: DB + Redis reachable."""
+    """Liveness: DB + Redis reachable; plus the agents when they are remote."""
     import redis.asyncio as aioredis
 
     status: dict[str, str] = {"api": "ok"}
@@ -27,10 +27,45 @@ async def healthz(session: SessionDep) -> dict:
     except Exception:
         status["redis"] = "down"
 
+    if settings.AGENTS_MODE == "a2a":
+        # In a2a mode a report cannot be written without both services, so a
+        # dead agent belongs in the liveness answer. In local mode there is no
+        # socket to probe and adding one would be a false alarm.
+        from app.a2a.client import agent_health
+
+        status.update(await agent_health())
+
     status["overall"] = (
-        "healthy" if all(v == "ok" for v in status.values()) else "degraded"
+        "healthy"
+        if all(value.startswith("ok") for value in status.values())
+        else "degraded"
     )
     return status
+
+
+@router.get("/health/agents")
+async def agents_health() -> dict:
+    """Card discovery for the two A2A services.
+
+    A separate endpoint from `/healthz` on purpose: this one is a diagnostic
+    (which agent, which card) and costs two network round trips, so it should
+    not be on the path a load balancer polls every few seconds.
+    """
+    if settings.AGENTS_MODE != "a2a":
+        # Reporting a remote agent as "down" when the mode is local would be a
+        # false alarm: there is no port and no card to find.
+        return {
+            "mode": "local",
+            "writer": "in-process",
+            "critic": "in-process",
+            "status": "ok",
+        }
+
+    from app.a2a.client import agent_health
+
+    cards = await agent_health()
+    healthy = all(value.startswith("ok") for value in cards.values())
+    return {"mode": "a2a", **cards, "status": "ok" if healthy else "degraded"}
 
 
 @router.get("/health/llm")

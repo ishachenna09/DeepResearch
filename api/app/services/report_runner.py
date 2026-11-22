@@ -118,20 +118,56 @@ async def _run(report_id: uuid.UUID) -> None:
             report_id, len(notes), len(registry), job.id,
         )
 
-        run = WriterRun(job.question, job.plan, registry)
         chunks: list[str] = []
+        # Whatever the mode, these four values describe the generation and are
+        # recorded on the report. Kept in a dict so the failure path can read
+        # them before the run object exists.
+        draft = {"tokens": 0, "model": "", "finish_reason": None, "truncated": False}
+
+        async def emit(text: str) -> None:
+            if not text:
+                return
+            chunks.append(text)
+            # JSON, not the raw text: SSE frames are newline-delimited, and
+            # a chunk containing "\n" would split into multiple data lines.
+            await stream.append(report_id, "token", {"text": text})
+
         try:
-            async for text in run.astream():
-                chunks.append(text)
-                # JSON, not the raw text: SSE frames are newline-delimited, and
-                # a chunk containing "\n" would split into multiple data lines.
-                await stream.append(report_id, "token", {"text": text})
+            if settings.AGENTS_MODE == "a2a":
+                # Imported lazily: `local` must not need the A2A client (or a
+                # running agent) at import time. `emit` is the same Redis append
+                # the local path performs, so the browser cannot tell them apart.
+                from app.a2a.client import write_report_remote
+
+                reply = await write_report_remote(
+                    question=job.question,
+                    plan=job.plan,
+                    registry=registry,
+                    max_tokens=settings.REPORT_MAX_TOKENS,
+                    on_delta=emit,
+                )
+                draft.update(
+                    tokens=reply.tokens,
+                    model=reply.model,
+                    finish_reason=reply.finish_reason,
+                    truncated=reply.truncated,
+                )
+            else:
+                run = WriterRun(job.question, job.plan, registry)
+                async for text in run.astream():
+                    await emit(text)
+                draft.update(
+                    tokens=run.tokens,
+                    model=run.model,
+                    finish_reason=run.finish_reason,
+                    truncated=run.truncated,
+                )
         except Exception as exc:  # noqa: BLE001 - record partial output, never crash
             partial = "".join(chunks)
             report.markdown = partial
             report.status = "failed"
             report.error = f"{type(exc).__name__}: {exc}"[:1000]
-            report.tokens_used = run.tokens
+            report.tokens_used = draft["tokens"]
             report.citations = citations_for(partial, registry)
             report.validation = validate(partial, registry)
             await session.commit()
@@ -141,8 +177,8 @@ async def _run(report_id: uuid.UUID) -> None:
 
         markdown = normalize("".join(chunks))
         validation = validate(markdown, registry)
-        validation["truncated"] = run.truncated
-        total_tokens = run.tokens
+        validation["truncated"] = draft["truncated"]
+        total_tokens = draft["tokens"]
 
         # One bounded second attempt. Two triggers, both caught by the audit
         # rather than by luck:
@@ -179,7 +215,7 @@ async def _run(report_id: uuid.UUID) -> None:
                 if len(repaired) > 200 and _score(repaired_validation) > _score(validation):
                     markdown, validation = repaired, repaired_validation
                     if repair_model:
-                        run.model = repair_model
+                        draft["model"] = repair_model
                     await stream.append(report_id, "replace", {"text": markdown})
                 validation["repaired"] = True
                 logger.info(
@@ -197,7 +233,7 @@ async def _run(report_id: uuid.UUID) -> None:
         report.citations = citations
         report.validation = validation
         report.tokens_used = total_tokens
-        report.model = run.model
+        report.model = draft["model"]
         report.status = "ready"
         report.error = None
         await session.commit()
@@ -217,7 +253,7 @@ async def _run(report_id: uuid.UUID) -> None:
             "finish=%s truncated=%s uncited=%s served_by=%s",
             report_id, validation["words"], len(citations),
             validation["precision"], validation["coverage"], total_tokens,
-            run.finish_reason, validation.get("truncated"), validation["uncited"], run.model,
+            draft["finish_reason"], validation.get("truncated"), validation["uncited"], draft["model"],
         )
 
 

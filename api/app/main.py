@@ -35,6 +35,10 @@ async def lifespan(app: FastAPI):
     yield
     await cancel_all()      # stop in-flight research before closing clients
     await cancel_all_reports()
+    # Lazy: `local` mode never imports the A2A client (or its SDK) at all.
+    from app.a2a.client import close_agent_clients
+
+    await close_agent_clients()
     await close_toolbox()
     await close_page_cache()
     await close_report_stream()

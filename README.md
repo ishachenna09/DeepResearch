@@ -33,7 +33,7 @@ DeepResearch/
 ├── frontend/                   # React + Vite + Tailwind
 │   └── src/                    # pages/{Research,JobDetail,Dashboard} · components/{research,report}/ · hooks/{useJob,useReport}.ts · lib/{api,research,report,inflight,types}.ts
 ├── evals/                      # promptfoo CI regression gate
-├── scripts/                    # seed_questions.py, demo.ps1
+├── scripts/                    # start_* , verify_phase*.ps1, seed_questions.py, demo.ps1
 ├── infra/                      # caddy, ec2 deploy, CI workflows
 └── docs/                       # ARCHITECTURE · TECH_DECISIONS (interview) · INTERVIEW_PREP
 ```
@@ -51,7 +51,7 @@ DeepResearch/
 | **4** (done) | Critic agent + bounded gap-filling loop + token budget | Eval-driven loop control, failure modes |
 | **4.5** (done) | Research UI: ask → edit/approve plan → live run → evidence + semantic search | Polling vs streaming, HITL UX, input vs output schemas |
 | **5** (done) | Writer streams report + **citation validator** | SSE over Redis Streams, claim→source verification |
-| **6** | Agents extracted as separate A2A services | **A2A** protocol, AgentCards, distributed agents |
+| **6** (done) | Writer + critic extracted as **A2A services** | **A2A** protocol, AgentCards, distributed agents |
 | **7** | Evals in CI + Langfuse traces + cost dashboard | DeepEval/Ragas/promptfoo, observability |
 | **8** | Report library, export (MD/PDF), admin dashboards | S3/R2, product polish |
 | **9** | Hardening: rate limits, SSRF defense, load + security tests | Production concerns |
@@ -86,7 +86,9 @@ Verify:
 ```
 
 Then: `scripts\start_litellm.ps1` (terminal 1), `scripts\start_api.ps1` (terminal 2),
-`npm run dev` (terminal 3, from `frontend/`).
+`npm run dev` (terminal 3, from `frontend/`). For Phase 6 add
+`scripts\start_agents.ps1` (terminal 4) and set `AGENTS_MODE=a2a` for the API;
+the default `local` mode needs no agents at all.
 
 ---
 
@@ -108,6 +110,7 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 | `GET` | `/tools` | MCP tool schema advertised over stdio |
 | `POST` | `/tools/search`, `/tools/fetch` | raw search / page fetch + injection scan |
 | `GET` | `/healthz`, `/health/llm` | dependency health; LLM reports which tier served it |
+| `GET` | `/health/agents` | A2A agent cards (writer/critic) or `mode=local` when they run in-process |
 
 Status machine: `planning -> awaiting_approval -> researching -> notes_ready`
 (or `rejected` / `failed`). Poll `GET /research/{id}`; a run takes ~2-4 minutes.
@@ -142,6 +145,57 @@ tokens over SSE; the stored row is the source of truth for citations.
 - **`reports.model` names the model that actually answered**, not the alias that was requested -
   the proxy fails over Gemini -> Gemini-Lite -> Groq, and a silent failover should be visible in
   the data rather than hidden behind `support-chat`.
+
+### The agents (Phase 6)
+
+The writer and the critic are now **A2A agents**: two separate services that the API talks to over
+JSON-RPC instead of importing. Same code, same prompts - the point is the boundary, so the work can
+be scaled, restarted and (in Phase 10) deployed independently.
+
+| Service | Port | Card / skill | Returns |
+|---|---|---|---|
+| `app.a2a.writer_app:app` | `8010` | `deepresearch-writer` / `write-cited-report` | streamed markdown artifact + metadata (`tokens`, `model`, `finish_reason`, `truncated`, `chars`, `citations`) |
+| `app.a2a.critic_app:app` | `8011` | `deepresearch-critic` / `critique-coverage` | one JSON artifact `{sufficient, gaps, reason}` + `tokens`/`model`, `gaps` capped at `max_gaps` |
+
+```powershell
+scripts\start_agents.ps1            # start both, wait for /healthz, write pid files
+scripts\start_agents.ps1 -Stop      # stop both
+```
+
+Then run the API with `AGENTS_MODE=a2a` (in `.env` or the shell); the default `local` needs no
+agents at all, so the graph is still testable and runnable without a second process.
+
+- **Discovery, not hard-coded addresses.** Each service publishes an AgentCard at
+  `/.well-known/agent-card.json` (`protocolVersion: "1.0"`, `protocolBinding: "JSONRPC"`,
+  `capabilities.streaming: true`, and the skill it implements). The API fetches the card and
+  reads the RPC endpoint from `supportedInterfaces`; a moved agent is a URL change, not a code change.
+- **Auth on the RPC, never on the card.** A shared bearer token (`A2A_TOKEN`) is checked with
+  `secrets.compare_digest` before JSON-RPC parsing - so no token / wrong token is a plain `401`
+  with `WWW-Authenticate: Bearer`, not a protocol error. The card and `/healthz` stay public
+  (discovery has to work), and a service with no token configured answers `503` rather than
+  running open.
+- **Streaming is real.** `SendStreamingMessage` sends a `Task` first, then status updates, then
+  artifact chunks (`append=false` creates the artifact, `append=true` extends it) and a final
+  empty chunk carrying metadata. The API reassembles them; the report SSE the browser sees is
+  unchanged, because the writer's chunks feed the same `emit()` as before.
+- **`SendMessage` for the critic, `SendStreamingMessage` for the writer.** A verdict is one small
+  JSON object - streaming it would be three frames of ceremony. A report is thousands of tokens
+  over 6-11 s, so it streams.
+- **Failure is contained and named.** If the writer is down the report task fails with
+  `AgentUnavailable: http://127.0.0.1:8010: transport error`, not a generic 500: an operator can
+  tell "a dependency is down" from "the model wrote nothing". Restarting the service and
+  regenerating recovers. The remote critic is softer - any agent failure becomes
+  `stop_reason="critic_error"`, which ends the loop keeping the notes already gathered.
+- **The orchestrator keeps the decisions.** AgentCard data, the note registry, the citation audit
+  and `decide_stop` stay in the API. A remote agent may *propose* a verdict; it never decides
+  whether the loop stops - that is the difference between a tool call and handing over control.
+- **Tasks survive a restart.** A `GetTask` after the agent has been restarted still returns the
+  task and its artifacts: `RedisTaskStore` writes each task as JSON with `A2A_TASK_TTL` (3600 s)
+  and falls back to memory if Redis is unreachable. `list()` is still in-process - documented,
+  not pretended.
+- **Health is end-to-end.** `/healthz` probes both agents in a2a mode (card discovery) and
+  `/health/agents` reports `mode=a2a` plus each agent's name, or `mode=local` when they run
+  in-process.
 
 ## Frontend (research UI)
 
@@ -188,7 +242,10 @@ cd api
 ```
 
 The loop's four brakes are a pure function (`decide_stop`), so they are tested
-deterministically instead of relying on a live model to misbehave on cue.
+deterministically instead of relying on a live model to misbehave on cue. The A2A layer is tested
+the same way: payloads that must survive protobuf (a `None` title, ints that arrive as floats), the
+event order the SDK requires (Task before status before chunks), the SSE parser, the accumulator
+that reassembles a report, and the ASGI surface (card public, RPC 401/503, `-32601`/`-32001`).
 
 ## Verify a phase (one command)
 
@@ -199,7 +256,14 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_phase3.ps1 -SkipCache   
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase4.ps1   # critic, gap round, tokens, dedupe
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase4.ps1 -SkipSecond  # skip the control run
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase5.ps1   # report, citation audit, SSE + replay
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase6.ps1   # A2A cards, auth, agent-generated report, failure
 ```
+
+`verify_phase6.ps1` owns its processes: it starts the writer, the critic and a **second API on
+`:8002`** with `AGENTS_MODE=a2a`, then stops all three in `finally` - your `:8001` is untouched.
+It proves the report really went *through the agent* (the writer's log gains a task) and that a
+stopped writer fails the report with `AgentUnavailable` rather than silently falling back to the
+local path. `-SkipE2E` runs the protocol checks only; `-KeepRunning` leaves the stack up.
 
 Pass `-Base http://localhost:8001/api/v1` when another app already owns `:8000`.
 

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -93,6 +94,22 @@ class Settings(BaseSettings):
     # Token stream lifetime in Redis. Reconnecting reads replay from id 0, so
     # this only has to outlive a browser session - not the report itself.
     REPORT_STREAM_TTL: int = 3600
+
+    # ── Phase 6: writer + critic as A2A services ─────────
+    # `local` runs both agents in-process. Default on purpose: one uvicorn must
+    # not need three processes to serve a report. Deploy sets `a2a`.
+    AGENTS_MODE: Literal["local", "a2a"] = "local"
+    A2A_WRITER_URL: str = "http://127.0.0.1:8010"   # card answers at /.well-known/agent-card.json
+    A2A_CRITIC_URL: str = "http://127.0.0.1:8011"
+    # Shared secret. The agent services return 503 rather than run open without
+    # it; this side refuses to even build a request with an empty token.
+    A2A_TOKEN: str = ""
+    # Read timeout for ONE call. Measured: a cold Gemini took 127 s to its first
+    # token and the write is a single long streamed response - 200 s leaves room
+    # for first-token latency plus a 60 s generation on the failover tier.
+    A2A_READ_TIMEOUT: int = 200
+    A2A_CARD_TTL: int = 300     # seconds a discovered card is trusted
+    A2A_TASK_TTL: int = 3600    # how long `GetTask` can still find a task
 
     # ── Observability (Langfuse Cloud) ───────────────────
     LANGFUSE_HOST: str = ""

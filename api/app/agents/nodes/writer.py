@@ -367,8 +367,19 @@ class WriterRun:
     half a brief.
     """
 
-    def __init__(self, question: str, plan: dict | None, registry: list[dict]) -> None:
+    def __init__(
+        self,
+        question: str,
+        plan: dict | None,
+        registry: list[dict],
+        max_tokens: int | None = None,
+        temperature: float = 0.3,
+    ) -> None:
         self.messages = build_messages(question, plan, registry)
+        # Both are caller-settable so the A2A task can ask for a shorter draft
+        # without this module growing a second code path.
+        self.max_tokens = max_tokens if max_tokens is not None else settings.REPORT_MAX_TOKENS
+        self.temperature = temperature
         self.tokens = 0
         self.model = settings.LLM_PRIMARY_MODEL
         self.finish_reason: str | None = None
@@ -378,8 +389,8 @@ class WriterRun:
         return self.finish_reason == "length"
 
     async def astream(self) -> AsyncIterator[str]:
-        llm = get_llm(temperature=0.3, timeout=settings.REPORT_TIMEOUT).bind(
-            max_tokens=settings.REPORT_MAX_TOKENS
+        llm = get_llm(temperature=self.temperature, timeout=settings.REPORT_TIMEOUT).bind(
+            max_tokens=self.max_tokens
         )
         try:
             stream = llm.astream(self.messages, stream_usage=True)

@@ -52,6 +52,8 @@ Rule for every answer: **decision → alternative → why we chose it → the tr
 - **"Why MCP *and* A2A?"** — "Different layers: MCP standardizes *tools* (my search tool is reusable by any client); A2A standardizes *agents* (my writer is a discoverable service). One protocol can't do both."
 - **"Why Redis over just Postgres?"** — "Postgres is durable truth; Redis is ephemeral speed — checkpoints for crash recovery, a page cache to dedupe fetches, and report token streams that cost nothing to replay."
 - **"Why Redis Streams, not pub/sub?"** — "Pub/sub is fire-and-forget: a tab opened mid-report sees the tail of an answer with no beginning. A Stream keeps the last N entries, so a refresh or a second tab resumes from `Last-Event-ID` on the same code path as a live reader."
+- **"Why SDK on the server, hand-rolled client on the caller?"** — "The server must pass anyone's conformance tests, so it uses the official `a2a-sdk`. The caller needs an exact read timeout, no retry after a 401, and no replay of deltas it already rendered - three behaviours I could not configure, so I wrote the 300-line client that does exactly what the report path needs."
+- **"Why is the orchestrator still local?"** — "Agents propose, the orchestrator decides. The registry, the citation audit and `decide_stop` stay in the API: a remote agent must not be able to extend its own budget or declare the loop finished."
 - **"How do you know it's correct?"** — "Citation precision ≥0.90 on a golden set, gated in CI; every claim links to cached source text so a human can verify."
 - **"Why not OpenAI?"** — "No usable free tier; we're on Gemini (1M context, free) with Groq failover behind LiteLLM — one config line to swap."
 
@@ -271,4 +273,71 @@ Phase 6's A2A path needs.
 | frontend | `npm run build` clean: **279 kB JS / 90 kB gzip** (+1.9 kB; no `react-markdown`) |
 | browser | fresh load renders the report in **4.5 s** with no click; 1 `GET /report`; 30 chips -> 23 source rows, all anchors resolve, 0 unknown markers; regenerate streams 0 -> 429 -> 4214 chars |
 | best observed report | 618 words, 29 citations, precision **1.0**, coverage **0.94**, produced by the second attempt after a 0-marker first draft |
+
+## Phase 6 - writer and critic as A2A services
+
+The writer and the critic left the process. They are now two small FastAPI services that
+advertise themselves with AgentCards and answer `SendMessage` / `SendStreamingMessage` over JSON-RPC
+2.0. The API keeps the graph, the registry, the audit and the loop; only the two expensive model
+calls cross a network boundary.
+
+| Decision | Chosen | Alternatives considered | Why rejected |
+|---|---|---|---|
+| **Protocol version** | A2A **1.0** (`protocolVersion: "1.0"`, `A2A-Version: 1.0`, card at `/.well-known/agent-card.json`) | A2A 0.2/0.3; a bespoke HTTP API | 0.3 is the old shape (`url` on the card, `tasks/send`, streaming on the card). `a2a-sdk 1.3.1` ships both, but a new build on a deprecated shape is a migration you schedule for no reason. A bespoke API would not be discoverable by any other A2A client - and "any client works" is the whole point of the phase. |
+| **Server SDK** | `a2a-sdk[fastapi]==1.3.1` - it owns routing, task lifecycle, SSE framing and JSON-RPC error codes | Hand-rolled server (as in Phase 5's client) | The server is the *conformance surface*: an outside client (or the SDK's own client) must be able to talk to it. Re-implementing `TaskState` transitions and the SSE envelope buys nothing and gets `-32601`/`-32001` subtly wrong. The SDK's quirks were cheaper to work around than to reproduce. |
+| **Caller** | Hand-rolled `httpx` client (`app/a2a/client.py`): card discovery, `SendStreamingMessage` + SSE parse, accumulator, `GetTask` | The SDK's client | Needs three things a library hides: an **exact read timeout** (`A2A_READ_TIMEOUT=200`) instead of a retry/backoff policy; **no retry on 401** (a bad token is not transient); and **no replay** of a delta already yielded to the browser. Same reasoning that kept `sse-starlette` out of Phase 5: own the wire where the failure modes live. |
+| **Which method per agent** | Writer: `SendStreamingMessage`. Critic: `SendMessage` | Both streamed; both unary | A report is thousands of tokens over 6-11 s, so the user should see it type. A verdict is one ~400-token JSON object; streaming it is three frames of ceremony and a worse error surface. |
+| **Split point** | Only **writer** and **critic** are remote. Plan, fan-out, search, merge, audit, `decide_stop` stay in the API | Every node as an agent | The two nodes are the ones you scale and retry independently (writer = expensive, critic = cheap and frequent), and they have clean input/output contracts. Fan-out is a `Send` map-reduce inside the graph; wrapping it in RPC adds hops and state to the one place that must stay deterministic. |
+| **Who decides** | Agent **proposes** (`sufficient`, `gaps`); orchestrator decides (`decide_stop`, registry, audit) | Let the critic agent end the loop | A remote agent that can declare success can also extend its own budget or stop early. Keeping the brakes local means a buggy or hostile agent costs a round, not the run - and the four brakes stay unit-testable without a network. |
+| **Task store** | `RedisTaskStore(InMemoryTaskStore)`: JSON per task, key `dr:a2a:task:<ns>:<id>`, TTL `A2A_TASK_TTL=3600`, soft-fails to memory | In-memory only; Postgres | A `GetTask` after a restart must still return the artifact - otherwise "distributed" means "loses the answer on deploy". Postgres would add a migration and a write per chunk for data that is valid for an hour. `list()` stays in-process (documented limitation, not a silent one). |
+| **Auth** | Shared bearer token (`A2A_TOKEN`) via middleware, `secrets.compare_digest`, card + `/healthz` public, RPC `401` + `WWW-Authenticate`, `503` when unset | No auth ("internal network"); JWT per user | An open agent is an open LLM bill. Per-user JWT would mean the agent needs the API's signing key and user table - coupling for no gain when the only caller is the API. `503` on an unset token is deliberate: a misconfigured service refuses to run open instead of quietly becoming one. Phase 10 replaces this with mTLS / OAuth2 client credentials. |
+| **Transport** | One `httpx.AsyncClient` per agent, created lazily and closed in the API lifespan | New client per call; the SDK client | Per-call clients leak sockets under the report's chunk count. Lazy creation keeps `AGENTS_MODE=local` from opening connections it will never use, and the lifespan close makes shutdown deterministic. |
+| **Failure semantics** | Writer down -> report `failed` with `AgentUnavailable: <url>: <reason>`. Critic down -> `stop_reason="critic_error"` and the notes are kept | Fall back to the local node silently | Silent fallback would make the phase unverifiable - you could never prove the remote path ran. The critic is optional work (its verdict only steers the next round), so it degrades; the writer is the deliverable, so it fails loudly. |
+
+### Phase 6 incidents (measured wire quirks)
+
+These are the ones that cost time; each is a "the spec is not the JSON you imagined" story.
+
+1. **`GetTask` takes `id`, not `taskId`.** `params: {"id": "<task-id>"}` is the v1.0 proto field;
+   `taskId` fails with `Validation failed: field 'id' is required`. The streaming frames use
+   `taskId`, so the two shapes are inconsistent *within the same protocol*.
+2. **`GetTask` returns the Task object directly**, not `{"task": {...}}` like `SendMessage`. The
+   client accepts both now, but the measured shape is the bare object.
+3. **`Struct` has no integers.** Every number comes back as a float - `max_tokens: 2600.0`,
+   `tokens: 412.0`. Pydantic coerces on the way in (`int` fields accept `2600.0`), but the
+   accumulator had to `int()` the metadata explicitly or `tokens` would render as `412.0`.
+4. **`None` crashes `ParseDict`.** `Struct` has no null type, so a note with `title: null` made the
+   *request* fail before the agent ran. `payloads._clean()` strips `None` recursively; the pydantic
+   model supplies the default on the far side.
+5. **The executor must enqueue a `Task` before any status event**, and the first artifact chunk must
+   be `append=False`, then `append=True`. Any other order is an SDK `RuntimeError`, not a client
+   error - it fails in the producer, where it is hardest to see.
+6. **The final artifact chunk can be `parts=[]` with `last_chunk=True` and metadata only.** A naive
+   accumulator overwrites the text with `""`. Ours only replaces text when parts are present.
+7. **A down service is a transport error, not an HTTP status.** `httpx` raises
+   `ConnectError` before any JSON-RPC error exists, so "agent unavailable" and "agent said no" are
+   different exception types - the report error message names which one happened.
+8. **`langfuse` import starvation on Windows.** Starting three CPython processes at once (each
+   importing langchain -> langsmith) intermittently raised `MemoryError` inside an import and looked
+   exactly like a broken service. `verify_phase6.ps1` retries startup up to 3 times and prints the
+   last stderr line, so a real error is still visible instead of being retried away.
+
+### Phase 6 verification evidence
+
+`scripts/verify_phase6.ps1` - 8 sections, all passing; it starts writer :8010, critic :8011 and a
+second API on :8002 (`AGENTS_MODE=a2a`), then stops all three.
+
+| what | value |
+|---|---|
+| cards | both `protocolVersion 1.0`, `protocolBinding JSONRPC`, `streaming=true`, skills `write-cited-report` / `critique-coverage`, public without a token |
+| auth | no token -> **401** + `WWW-Authenticate: Bearer`; wrong token -> **401**; unset `A2A_TOKEN` -> **503** |
+| protocol errors | unknown method -> `-32601`; unknown task -> `-32001` |
+| critic over A2A | `SendMessage` completed in **3 s**, **412** tokens, `support-chat-lite`, verdict `sufficient=false` with **2** gaps (`max_gaps=2` honoured) |
+| discovery from the API | `/healthz` `writer=ok (deepresearch-writer)` / `critic=ok (...)`; `/health/agents` `mode=a2a status=ok` |
+| report through the writer agent | `ready` in **6 s**, **537 words**, **29 markers**, precision **1.0**, coverage **0.95**, served model recorded; writer's own log gained a task, proving the remote path ran |
+| failure containment | writer stopped -> report `failed` in **11 s** with `AgentUnavailable: http://127.0.0.1:8010: transport error (All connection attempts failed)`; restart + regenerate -> `ready` with 28 markers |
+| `GetTask` persistence | task read back from Redis after a service restart; TTL measured **~3574 s** |
+| streaming | `SendStreamingMessage` produced **34** SSE frames; `"".join(deltas) == reply.text` after reassembly |
+| tests | **54** deterministic tests (29 existing + 25 in `tests/test_a2a.py`) |
+| versions | `a2a-sdk 1.3.1` (pulls `protobuf 7.36.2`, `json-rpc 1.15.0`, `google-api-core 2.44.0`, `sse-starlette`); `httpx 0.28.1`; `pytest 9.2.0` |
 

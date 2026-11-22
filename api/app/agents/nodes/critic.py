@@ -127,6 +127,70 @@ def decide_stop(
     return None
 
 
+def critic_message(question: str, sub_questions: list[str], digest: str) -> str:
+    """The critic's whole prompt input - also the A2A payload's prose fields."""
+    return (
+        f"User question:\n{question}\n\n"
+        "Approved sub-questions:\n"
+        + "\n".join(f"- {q}" for q in sub_questions)
+        + f"\n\nEvidence digest:\n{digest}"
+    )
+
+
+async def review_coverage(
+    question: str, sub_questions: list[str], digest: str
+) -> tuple[CoverageReview | None, int, str, str]:
+    """One critic call -> `(review, tokens, served_model, error)`.
+
+    Shared on purpose: the local node and the A2A critic service must make the
+    *same* judgement, or the two modes would disagree about the same evidence.
+    The only difference between them is which process holds the socket.
+    """
+    llm = get_llm(temperature=0.0, timeout=settings.EXTRACT_TIMEOUT).with_structured_output(
+        CoverageReview, include_raw=True
+    )
+    try:
+        result = await llm.ainvoke(
+            [
+                {"role": "system", "content": CRITIC_PROMPT},
+                {"role": "user", "content": critic_message(question, sub_questions, digest)},
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, 0, "", f"{type(exc).__name__}: {exc}"
+
+    review = result.get("parsed")
+    tokens = usage_tokens(result.get("raw"))
+    served = (getattr(result.get("raw"), "response_metadata", None) or {}).get("model_name", "")
+    error = "" if review is not None else f"unparseable review: {result.get('parsing_error')}"
+    return review, tokens, served or "", error
+
+
+async def _remote_review(
+    question: str, sub_questions: list[str], digest: str
+) -> tuple[CoverageReview | None, int, str, str]:
+    """Ask the critic agent. Any failure is an unusable verdict, never a crash.
+
+    A distributed critic is a network dependency, so the interesting case is not
+    "it answered" - it is "it did not". The existing `critic_error` brake already
+    means "stop looping, the verdict is unusable"; this reuses it instead of
+    inventing a second failure mode.
+    """
+    from app.a2a.client import AgentError, critique_remote
+
+    try:
+        verdict, tokens, model = await critique_remote(
+            question=question,
+            sub_questions=sub_questions,
+            digest=digest,
+            max_gaps=settings.MAX_GAP_QUESTIONS,
+        )
+        return CoverageReview.model_validate(verdict), tokens, model, ""
+    except (AgentError, ValueError) as exc:
+        logger.warning("critic agent unavailable: %s", exc)
+        return None, 0, "", f"{type(exc).__name__}: {exc}"
+
+
 async def critic_node(state: ResearchState) -> dict:
     notes = state.get("notes") or []
     round_no = int(state.get("round") or 1)
@@ -148,32 +212,14 @@ async def critic_node(state: ResearchState) -> dict:
             },
         }
 
-    llm = get_llm(temperature=0.0, timeout=settings.EXTRACT_TIMEOUT).with_structured_output(
-        CoverageReview, include_raw=True
-    )
-    user_message = (
-        f"User question:\n{state.get('question', '')}\n\n"
-        f"Approved sub-questions:\n"
-        + "\n".join(f"- {q}" for q in (plan.get("sub_questions") or []))
-        + f"\n\nEvidence digest:\n{_digest(state)}"
-    )
+    question = state.get("question", "")
+    sub_questions = [q for q in (plan.get("sub_questions") or []) if q]
+    digest = _digest(state)
 
-    tokens = 0
-    review: CoverageReview | None = None
-    error = ""
-    try:
-        result = await llm.ainvoke(
-            [
-                {"role": "system", "content": CRITIC_PROMPT},
-                {"role": "user", "content": user_message},
-            ]
-        )
-        review = result.get("parsed")
-        tokens = usage_tokens(result.get("raw"))
-        if review is None:
-            error = f"unparseable review: {result.get('parsing_error')}"
-    except Exception as exc:  # noqa: BLE001
-        error = f"{type(exc).__name__}: {exc}"
+    if settings.AGENTS_MODE == "a2a":
+        review, tokens, model, error = await _remote_review(question, sub_questions, digest)
+    else:
+        review, tokens, model, error = await review_coverage(question, sub_questions, digest)
 
     proposed = []
     if review is not None:
@@ -215,8 +261,8 @@ async def critic_node(state: ResearchState) -> dict:
         gaps = []
 
     logger.info(
-        "critic round %d: sufficient=%s gaps=%d/%d stop=%s tokens=%d/%d",
+        "critic round %d: sufficient=%s gaps=%d/%d stop=%s tokens=%d/%d served=%s",
         round_no, critique["sufficient"], critique["gaps_kept"],
-        critique["gaps_proposed"], stop_reason, spent, budget,
+        critique["gaps_proposed"], stop_reason, spent, budget, model or "-",
     )
     return {"gaps": gaps, "critique": critique, "tokens_used": tokens}
