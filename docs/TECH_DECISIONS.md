@@ -55,6 +55,10 @@ Rule for every answer: **decision → alternative → why we chose it → the tr
 - **"Why SDK on the server, hand-rolled client on the caller?"** — "The server must pass anyone's conformance tests, so it uses the official `a2a-sdk`. The caller needs an exact read timeout, no retry after a 401, and no replay of deltas it already rendered - three behaviours I could not configure, so I wrote the 300-line client that does exactly what the report path needs."
 - **"Why is the orchestrator still local?"** — "Agents propose, the orchestrator decides. The registry, the citation audit and `decide_stop` stay in the API: a remote agent must not be able to extend its own budget or declare the loop finished."
 - **"How do you know it's correct?"** — "Citation precision ≥0.90 on a golden set, gated in CI; every claim links to cached source text so a human can verify."
+- **"Why a deterministic gate instead of DeepEval/Ragas?"** — "An LLM judge costs a call per case and gives a different verdict on the same input; citation precision is arithmetic, so the gate is plain Python that runs in under a second and can be the reason a pull request turns red."
+- **"Why recorded fixtures *and* negative controls?"** — "CI grades artifacts from real runs, so a fork's PR cannot spend my provider quota; and every run strips the markers and appends an invented `[99]`, both of which must fail — a gate that has never said no is decoration."
+- **"Why shadow cost when everything is free?"** — "The invoice is $0, so a token regression would be invisible. Pricing measured tokens at list prices with one stated 70/30 blend turns 'this got slower/wordier' into 'this got 3× more expensive'."
+- **"Why wrap generation in `propagate_attributes`?"** — "The LangChain callback creates the spans, not my code; ambient attributes are the one seam that labels them. Session = job id, tag = `report`, so one trace is findable without knowing an internal trace id."
 - **"Why not OpenAI?"** — "No usable free tier; we're on Gemini (1M context, free) with Groq failover behind LiteLLM — one config line to swap."
 
 ---
@@ -341,3 +345,73 @@ second API on :8002 (`AGENTS_MODE=a2a`), then stops all three.
 | tests | **54** deterministic tests (29 existing + 25 in `tests/test_a2a.py`) |
 | versions | `a2a-sdk 1.3.1` (pulls `protobuf 7.36.2`, `json-rpc 1.15.0`, `google-api-core 2.44.0`, `sse-starlette`); `httpx 0.28.1`; `pytest 9.2.0` |
 
+
+## Phase 7 - eval gate, traces and cost
+
+Quality had been asserted in prose ("precision >= 0.90") since Phase 5. Phase 7 makes it a command
+that exits non-zero, makes a report's spans findable, and puts a dollar figure on measured tokens.
+The interesting decisions are all about *what not to automate*.
+
+| Decision | Chosen | Alternatives considered | Why rejected |
+|---|---|---|---|
+| **How to score quality** | Deterministic arithmetic over the produced text: the production `validate()` plus per-case thresholds | DeepEval, Ragas, promptfoo, an LLM judge | Their distinguishing feature is a judge: one paid call per case, a different verdict run to run, and no defensible way to fail CI on it. The metrics that matter here (markers, precision, coverage, words, distinct domains, traceability) are computed from strings. The README originally named these tools; it was wrong, and the eval section now says why. Qualitative review still exists - a human reading the trace in Langfuse. |
+| **What the gate runs on** | Fixtures: job + report + the numbered registry recorded from a real run | Re-run the pipeline in CI; feed the live API | A live run is 1-4 minutes of provider time per case. A fork's pull request would spend the maintainer's quota, and a provider 429 would turn a code review red. Fixtures make the gate ~1 s, offline, and reproducible. |
+| **Fixture integrity** | Re-run `validate()` over the registry the writer was actually given; a stored `validation` that disagrees fails `audit_matches_recompute` | Trust the stored audit; store only the markdown | A fixture is a claim about what happened. If the grader trusts the claim, a stale or edited `validation` object passes forever. Recomputing costs microseconds and makes the shipped text the source of truth. |
+| **Live artifacts** | Cross-check only: stored marker count equals markers in the text; the rest of the stored audit is trusted and the artifact says `audit="stored"` | Pretend live artifacts have a registry; skip live grading | The API does not return the 30-source registry, so a live grade cannot recompute. Naming the weaker guarantee beats inventing a stronger one. |
+| **Negative controls** | Every invocation strips all markers from a passing artifact and appends `[99]`; both must be rejected | Trust the unit tests alone | A gate is code too. If a refactor stops checking `precision`, the tests may still pass; the controls are the gate watching itself on every run and in CI. |
+| **Thresholds** | Per case, in `evals/golden/cases.jsonl` | One global bar | An interview-advice answer legitimately needs fewer citations than a vector-database comparison. One number would either fail the first or rubber-stamp the second. |
+| **What is checked** | 15 checks: ready, notes, markers, precision, unknown markers, coverage, words, distinct domains, traceability, exact citation set, truncation, uncited sentences, tokens, model, stop reason | Precision only | Precision alone is satisfied by a two-sentence answer citing one source. Domains catch single-site framing; stop reason catches `critic_error`/`no_notes`; tokens and model catch a run nobody can cost or attribute. |
+| **Tracing seam** | `propagate_attributes(session_id=<job id>, tags=["report", f"mode:{mode}"], metadata={...})` around the generation, wrapped in `_SafeContext` | Update a trace after the fact; hand-create spans | LangChain's callback creates the spans; ambient attributes are the only supported way to label spans you do not create. Observability must never fail a report, so `_SafeContext` degrades any tracing exception to a warning. |
+| **Tracing health** | Three states: `ok`, `disabled` (no keys), `error` (keys rejected/unreachable), plus `check_traces.py` querying observations by session | A boolean "configured" | "Keys present" and "spans arriving" are different facts. The endpoint is a diagnostic (a network round trip), not part of liveness, so it is not in `/healthz`. |
+| **Cost basis** | Measured tokens (from the rows already written) × a code table of list prices, one blended USD/Mtok per model, `output_share=0.30`, `as_of` date in the response | Provider billing APIs; separate input/output prices; omit dollars | The app records `tokens_used`, not a per-call split - inventing one would look more precise than it is. Billing APIs are not uniform and need keys. A dated table is a one-line reviewable diff. Unknown models are priced as the default **and flagged `assumed=True`** rather than silently costing zero. |
+| **Failed reports** | Counted in usage | Count only `ready` | A failed report burned the tokens it burned. Excluding failures makes the cost of instability invisible - exactly the number worth watching. |
+| **Who sees totals** | `scope=self` by default; `scope=all` requires the `admin` role (403 otherwise) | One shared total | Cost is a weak proxy for activity, but it is still activity, and the questions behind it are user data. |
+
+### Phase 7 incidents (each one changed the code)
+
+1. **`validate()["markers"]` counts distinct marker indices, not occurrences.** "28 markers" means
+   28 different sources were cited, not 28 `[n]` strings. A grader that compared `len(re.findall())`
+   to the stored value would fail every real report. The negative control appends `[99]` (a new
+   index) rather than repeating an existing one, so it tests the metric it claims to test.
+2. **`citations_for()` returns references into the registry dicts.** The test helper built its
+   expected artifact from the module-level registry, so a test that rewrote a citation's URL also
+   rewrote the registry the next test graded. Symptom: an unrelated test failed with
+   `audit_matches_recompute` after a domain test passed. Fix: `deepcopy` the registry inside the
+   helper - and the incident is the argument for fixtures being immutable snapshots.
+3. **PowerShell `.NET` format strings are not Python's.** `"{0,-24s}"` throws
+   `Error formatting a string: Input string was not in a correct format.` - the `s` width suffix is
+   Python; .NET uses `{0,-24}`. The verification script died after printing two green lines, which
+   is how a *reporting* bug looked like a product failure.
+4. **A Windows path in a docstring is an escape sequence.** `.\\.venv\\Scripts\\python.exe` written
+   as `\.venv\Scripts\...` emits `SyntaxWarning: invalid escape sequence '\S'` on every run; `\r`
+   or `\t` would silently corrupt the text. Docstrings use `\\` now, and the warning is gone from
+   the gate output.
+5. **Langfuse v5 has no `last_trace_id`.** The v2 idiom of reading the id back off the client does
+   not exist. Spans are attributed by ambient context, and verification queries
+   `api.observations.get_many(session_id=...)` - which is also the query a human would run. The
+   check is "a span exists for this job", not "the SDK returned an id".
+6. **A live report overwrote the fixture's source row, and the fixture did not change.** Fixtures are
+   recorded snapshots, not pointers: regenerating job `60bc15f3` during `-Live` changed the DB row
+   but the gate kept grading the recorded artifact. That is the intended property - a gate that
+   reads live state is a gate that changes when someone clicks "regenerate".
+
+### Phase 7 verification evidence
+
+`scripts/verify_phase7.ps1` - 6 sections, passing with and without `-Live`; it starts a private API
+on `:8003` and stops it in `finally`. The `-Live` section regenerates one report and queries
+Langfuse by session, so "traces are configured" is proven by a span, not a key.
+
+| what | value |
+|---|---|
+| usage | **513,555** tokens (research **510,412** + report **3,143**), **24** jobs, **743** notes, shadow **$0.097575** at list prices, free tier **$0.00** |
+| per-model | `support-chat-lite` 1 report, 3,143 tokens, **$0.000597**; research priced as `LLM_PRIMARY_MODEL` (visible in the payload) |
+| RBAC | `scope=all` -> **403** for role `agent`; `scope=self` returns the caller's rows |
+| Langfuse | reachable + authenticated (`https://cloud.langfuse.com`); after the live report, **2 observations** found for session `60bc15f3-...` (name `ChatOpenAI`) |
+| eval gate | 2 fixtures PASS: `vector-db-choice` 28 markers / precision **1.00** / coverage **0.95** / 9 domains / 52 notes / 3,143 tokens; `ai-engineer-interview` 22 / **1.00** / **0.94** / 10 domains / 38 notes / 12,127 tokens |
+| gate totals | **15,270** tokens, shadow **$0.012239**; **4/4** negative controls rejected (2 cases × 2 controls) |
+| gate integrity | fixtures re-run `validate()`; a tampered `validation` fails `audit_matches_recompute` (unit-tested) |
+| live report | `ready` in **14 s**, **582** words, **27** citations, `support-chat-lite`, **3,075** tokens; usage increased by exactly the report tokens |
+| tests | **72** deterministic tests (54 prior + 12 evals + 6 pricing); no network, no LLM |
+| CI | `.github/workflows/ci.yml` on Python 3.12: install both requirement files, `pytest api/tests`, `python evals/run_evals.py`, upload `evals/results/latest.json` |
+| frontend | `npm run build` clean: **283.35 kB JS / 91.22 kB gzip**; usage cards + per-model table + pricing note + Langfuse badge on `/system` |
+| versions | `langfuse 5.0.4`, `pytest 9.2.0`, FastAPI 0.162.0, Pydantic 2.14.1, `langgraph 1.2.21`; no new runtime dependency was added by this phase |

@@ -26,13 +26,13 @@ DeepResearch/
 │   │   ├── mcp_tools/          # FastMCP servers: search, fetch, notes (Phase 2)
 │   │   ├── rag/                # page cleaner, chunker, embedder, retriever
 │   │   ├── guardrails/         # untrusted-web-content scanning, citation rules
-│   │   ├── evals/              # DeepEval/Ragas suites + golden datasets (Phase 7)
+│   │   ├── evals/              # deterministic graders for the CI gate (Phase 7)
 │   │   ├── models/  schemas/  services/  workers/
 │   ├── alembic/                # migrations
 │   └── tests/                  # unit | integration | graph | e2e
+├── evals/                      # golden cases + recorded fixtures + run_evals.py
 ├── frontend/                   # React + Vite + Tailwind
 │   └── src/                    # pages/{Research,JobDetail,Dashboard} · components/{research,report}/ · hooks/{useJob,useReport}.ts · lib/{api,research,report,inflight,types}.ts
-├── evals/                      # promptfoo CI regression gate
 ├── scripts/                    # start_* , verify_phase*.ps1, seed_questions.py, demo.ps1
 ├── infra/                      # caddy, ec2 deploy, CI workflows
 └── docs/                       # ARCHITECTURE · TECH_DECISIONS (interview) · INTERVIEW_PREP
@@ -52,7 +52,7 @@ DeepResearch/
 | **4.5** (done) | Research UI: ask → edit/approve plan → live run → evidence + semantic search | Polling vs streaming, HITL UX, input vs output schemas |
 | **5** (done) | Writer streams report + **citation validator** | SSE over Redis Streams, claim→source verification |
 | **6** (done) | Writer + critic extracted as **A2A services** | **A2A** protocol, AgentCards, distributed agents |
-| **7** | Evals in CI + Langfuse traces + cost dashboard | DeepEval/Ragas/promptfoo, observability |
+| **7** (done) | Eval gate in CI + Langfuse traces + cost dashboard | Deterministic evals, trace sessions, shadow cost |
 | **8** | Report library, export (MD/PDF), admin dashboards | S3/R2, product polish |
 | **9** | Hardening: rate limits, SSRF defense, load + security tests | Production concerns |
 | **10** | Deploy: GH Actions → Docker → EC2 + Vercel → **public URL** | CI/CD, TLS, containers (cloud only) |
@@ -111,6 +111,8 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 | `POST` | `/tools/search`, `/tools/fetch` | raw search / page fetch + injection scan |
 | `GET` | `/healthz`, `/health/llm` | dependency health; LLM reports which tier served it |
 | `GET` | `/health/agents` | A2A agent cards (writer/critic) or `mode=local` when they run in-process |
+| `GET` | `/health/langfuse` | `ok` / `disabled` / `error` - "configured" is not "working" |
+| `GET` | `/usage?days=30` | measured tokens + shadow cost for the caller (`scope=all`: admin) |
 
 Status machine: `planning -> awaiting_approval -> researching -> notes_ready`
 (or `rejected` / `failed`). Poll `GET /research/{id}`; a run takes ~2-4 minutes.
@@ -197,6 +199,47 @@ agents at all, so the graph is still testable and runnable without a second proc
   `/health/agents` reports `mode=a2a` plus each agent's name, or `mode=local` when they run
   in-process.
 
+### Evals, traces and cost (Phase 7)
+
+The quality question is answered with arithmetic, not vibes: a golden set, recorded artifacts,
+and a gate that runs in ~1 s in CI.
+
+```powershell
+.\.venv\Scripts\python.exe evals\run_evals.py                       # CI mode (fixtures)
+.\.venv\Scripts\python.exe evals\run_evals.py --mode live --case llm-failover-design
+.\.venv\Scripts\python.exe evals\run_evals.py --mode live --record   # new fixture
+.\.venv\Scripts\python.exe scripts\check_traces.py <job-id>          # did the span land?
+```
+
+- **The gate is deterministic.** `api/app/evals/graders.py` applies thresholds per case
+  (markers, precision, coverage, words, distinct source domains, notes, tokens, model, stop
+  reason, truncation, uncited) and re-runs the production `validate()` when the fixture carries
+  the numbered registry. A stored `validation` that no longer describes the text fails
+  `audit_matches_recompute` - the gate does not take the run's word for it.
+- **Why not DeepEval / Ragas / promptfoo?** Their distinguishing feature is an LLM judge (or a
+  Node toolchain). A judge costs a call per case, is nondeterministic, and cannot be the reason
+  a pull request turns red. The metrics that matter here are arithmetic over text, so they run
+  as plain Python in under a second. Qualitative review still happens - in Langfuse, by a
+  human, on the traces the gate points at.
+- **The gate has negative controls.** Every run strips the markers from a passing artifact and
+  appends an invented `[99]`; both must be rejected. A gate that has never said no is
+  decoration, and a refactor that stops checking a metric is caught by the gate itself.
+- **Two modes, two costs.** `fixtures` is what CI runs (no DB, no provider). `live` drives the
+  API end to end and grades the fresh result; `--record` turns a pass into the next fixture.
+  CI never calls a provider, so a fork's PR cannot spend the maintainer's quota.
+- **CI is one workflow.** `.github/workflows/ci.yml`: install, `pytest api/tests`, then
+  `python evals/run_evals.py`; the JSON report is uploaded as an artifact. Both commands run
+  locally before the push - a red badge is not the first test.
+- **Traces are findable.** Each report's generation runs inside `propagate_attributes`:
+  `session_id=<job id>`, `tags=[report, mode:local|a2a]`, metadata with the report id. The
+  LangChain callback creates the spans, so this is the seam that labels them. `/health/langfuse`
+  distinguishes `disabled` (no keys) from `error` (keys rejected/unreachable), and
+  `check_traces.py` queries the observations API by session to prove a span landed.
+- **Cost is measured tokens × a stated price table.** `/usage` sums `research_jobs.tokens_used`
+  and `reports.tokens_used`; dollars are a *shadow* estimate at list prices (70/30 input/output
+  blend, table dated in the response). The free tier bills $0 - the point is that a token
+  regression becomes visible as money. `scope=all` is admin-only: cost is still user data.
+
 ## Frontend (research UI)
 
 ```powershell
@@ -246,6 +289,8 @@ deterministically instead of relying on a live model to misbehave on cue. The A2
 the same way: payloads that must survive protobuf (a `None` title, ints that arrive as floats), the
 event order the SDK requires (Task before status before chunks), the SSE parser, the accumulator
 that reassembles a report, and the ASGI surface (card public, RPC 401/503, `-32601`/`-32001`).
+The eval gate is tested by breaking artifacts on purpose: stripped markers, an invented `[99]`,
+a tampered `validation`, a one-site report, unrecorded tokens.
 
 ## Verify a phase (one command)
 
@@ -257,6 +302,8 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_phase4.ps1   # critic, g
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase4.ps1 -SkipSecond  # skip the control run
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase5.ps1   # report, citation audit, SSE + replay
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase6.ps1   # A2A cards, auth, agent-generated report, failure
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase7.ps1   # eval gate, /usage, Langfuse spans
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase7.ps1 -Live   # + regenerate a report
 ```
 
 `verify_phase6.ps1` owns its processes: it starts the writer, the critic and a **second API on
@@ -264,6 +311,11 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_phase6.ps1   # A2A cards
 It proves the report really went *through the agent* (the writer's log gains a task) and that a
 stopped writer fails the report with `AgentUnavailable` rather than silently falling back to the
 local path. `-SkipE2E` runs the protocol checks only; `-KeepRunning` leaves the stack up.
+
+`verify_phase7.ps1` starts a private API on `:8003`, runs the fixture gate and its negative
+controls, checks `/usage` + RBAC + Langfuse auth, then stops it. `-Live` also regenerates one
+report, asserts its tokens appear in `/usage`, and queries Langfuse by session to prove the span
+landed. It shares Postgres, so do not run it while a report is in flight on another API.
 
 Pass `-Base http://localhost:8001/api/v1` when another app already owns `:8000`.
 

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import asyncio
+
 from fastapi import APIRouter
 from sqlalchemy import text
 
@@ -66,6 +70,31 @@ async def agents_health() -> dict:
     cards = await agent_health()
     healthy = all(value.startswith("ok") for value in cards.values())
     return {"mode": "a2a", **cards, "status": "ok" if healthy else "degraded"}
+
+
+@router.get("/health/langfuse")
+async def langfuse_health() -> dict:
+    """Is tracing actually connected? Three states, no false green.
+
+    `disabled` means keys are absent by configuration. `error` means keys are
+    present but the host rejected them or is unreachable - the difference matters
+    at 3 a.m. `auth_check()` is a network round trip, so this endpoint is a
+    diagnostic like `/health/agents`, not part of the liveness path.
+    """
+    from app.core.observability import get_langfuse
+
+    client = get_langfuse()
+    if client is None:
+        return {"status": "disabled", "detail": "LANGFUSE_PUBLIC_KEY/SECRET_KEY not set"}
+    try:
+        ok = await asyncio.to_thread(client.auth_check)
+    except Exception as exc:  # noqa: BLE001 - report, do not fail the request
+        return {"status": "error", "host": settings.LANGFUSE_HOST, "detail": str(exc)[:300]}
+    return {
+        "status": "ok" if ok else "error",
+        "host": settings.LANGFUSE_HOST,
+        "detail": "authenticated" if ok else "keys rejected by the host",
+    }
 
 
 @router.get("/health/llm")

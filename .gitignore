@@ -42,3 +42,4 @@ langfuse-data/
 # Generated
 *.sqlite3
 alembic/versions/*.pyc
+evals/results/

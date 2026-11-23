@@ -34,6 +34,7 @@ from app.agents.nodes.writer import (
     validate,
 )
 from app.core.config import settings
+from app.core.observability import report_trace_attributes
 from app.core.streams import get_report_stream
 from app.db import SessionLocal
 from app.models.report import Report
@@ -133,35 +134,45 @@ async def _run(report_id: uuid.UUID) -> None:
             await stream.append(report_id, "token", {"text": text})
 
         try:
-            if settings.AGENTS_MODE == "a2a":
-                # Imported lazily: `local` must not need the A2A client (or a
-                # running agent) at import time. `emit` is the same Redis append
-                # the local path performs, so the browser cannot tell them apart.
-                from app.a2a.client import write_report_remote
+            # One trace per report: job id as session, `report` tag, and the
+            # served mode. Without this a busy project has no way to find the
+            # spans behind one report - the trace id is an internal detail.
+            with report_trace_attributes(
+                session_id=str(job.id),
+                report_id=str(report_id),
+                job_id=str(job.id),
+                mode=settings.AGENTS_MODE,
+                event="report",
+            ):
+                if settings.AGENTS_MODE == "a2a":
+                    # Imported lazily: `local` must not need the A2A client (or a
+                    # running agent) at import time. `emit` is the same Redis append
+                    # the local path performs, so the browser cannot tell them apart.
+                    from app.a2a.client import write_report_remote
 
-                reply = await write_report_remote(
-                    question=job.question,
-                    plan=job.plan,
-                    registry=registry,
-                    max_tokens=settings.REPORT_MAX_TOKENS,
-                    on_delta=emit,
-                )
-                draft.update(
-                    tokens=reply.tokens,
-                    model=reply.model,
-                    finish_reason=reply.finish_reason,
-                    truncated=reply.truncated,
-                )
-            else:
-                run = WriterRun(job.question, job.plan, registry)
-                async for text in run.astream():
-                    await emit(text)
-                draft.update(
-                    tokens=run.tokens,
-                    model=run.model,
-                    finish_reason=run.finish_reason,
-                    truncated=run.truncated,
-                )
+                    reply = await write_report_remote(
+                        question=job.question,
+                        plan=job.plan,
+                        registry=registry,
+                        max_tokens=settings.REPORT_MAX_TOKENS,
+                        on_delta=emit,
+                    )
+                    draft.update(
+                        tokens=reply.tokens,
+                        model=reply.model,
+                        finish_reason=reply.finish_reason,
+                        truncated=reply.truncated,
+                    )
+                else:
+                    run = WriterRun(job.question, job.plan, registry)
+                    async for text in run.astream():
+                        await emit(text)
+                    draft.update(
+                        tokens=run.tokens,
+                        model=run.model,
+                        finish_reason=run.finish_reason,
+                        truncated=run.truncated,
+                    )
         except Exception as exc:  # noqa: BLE001 - record partial output, never crash
             partial = "".join(chunks)
             report.markdown = partial

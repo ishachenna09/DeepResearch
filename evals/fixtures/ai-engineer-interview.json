@@ -1,0 +1,599 @@
+{
+  "case_id": "ai-engineer-interview",
+  "recorded_at": "2026-11-22T07:28:35.454975+00:00",
+  "question": "i am preparing for AI Engineer role interview i have 2 years of experience Ihave knowledge on Langgaph, langchain, hitl, RAG, Python, fastapi, react js, azure ai, are there openenings available for 2 years of experienced candidate \nand i have to prepare for the interview give me how i have to learn and prepare for it.\ngive me 15 production based interview questiona dn answers",
+  "audit": "registry",
+  "job": {
+    "job_id": "747bb20c-95b5-4019-a5e9-929021e4e40a",
+    "status": "notes_ready",
+    "notes_count": 38,
+    "rounds": 2,
+    "tokens_used": 64261,
+    "plan": {
+      "angles": [
+        "Job market availability and remote vs. on‑site opportunities",
+        "Learning resources and curriculum depth",
+        "Production‑level interview question coverage",
+        "Compensation benchmarks and negotiation tips",
+        "Effective interview preparation methods",
+        "Networking, community engagement, and job search channels"
+      ],
+      "question": "i am preparing for AI Engineer role interview i have 2 years of experience Ihave knowledge on Langgaph, langchain, hitl, RAG, Python, fastapi, react js, azure ai, are there openenings available for 2 years of experienced candidate \nand i have to prepare for the interview give me how i have to learn and prepare for it.\ngive me 15 production based interview questiona dn answers",
+      "constraints": [
+        "Focus on candidates with exactly 2 years of professional experience",
+        "Include only resources and data published or updated in 2023‑2024",
+        "Cover both global and region‑specific (US, EU, APAC) job listings",
+        "Provide production‑grade questions, not purely theoretical ones",
+        "Exclude entry‑level or senior‑only positions",
+        "Consider remote work opportunities and visa‑friendly listings"
+      ],
+      "budget_tokens": 150000,
+      "sub_questions": [
+        "What AI Engineer job openings (global and remote) currently list 2‑year experience and require skills in LangChain, RAG, Python, FastAPI, React, and Azure AI?",
+        "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?",
+        "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?",
+        "What are the typical salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack in major markets (US, EU, APAC) as of 2024?",
+        "What proven interview‑preparation strategies (mock interviews, portfolio projects, system‑design practice, coding challenges) are recommended for candidates at this experience level?",
+        "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?",
+        "Use job  openings only in india and matching skillsets"
+      ]
+    },
+    "critique": {
+      "round": 2,
+      "reason": "Several sub‑questions lack any notes or have notes from only a single source, so multiple independent sources are needed to meet the coverage criteria.",
+      "gaps_kept": 3,
+      "notes_new": 10,
+      "sufficient": false,
+      "stop_reason": "max_rounds",
+      "tokens_used": 60724,
+      "budget_tokens": 150000,
+      "gaps_proposed": 3
+    }
+  },
+  "report": {
+    "report_id": "1da51a63-68e8-40b3-b30c-34b0b682fce7",
+    "status": "ready",
+    "markdown": "## Answer  \nYou can strengthen your candidacy for AI Engineer roles in India by building a portfolio of LangChain-RAG projects deployed with FastAPI + React, studying recent production-grade resources (LangChain Academy, DeepLearning.AI, Dataquest, IBM certificate), and practicing the interview topics highlighted in system-design and API-focused guides [1, 7, 13, 30, 9, 2, 24].\n\nIndian junior AI-engineer salaries for 0-2 years of experience range from ₹12 L to ₹25 L, while mid-level (2-5 years) roles pay ₹22 L-₹40 L, with higher pay at FAANG/unicorn firms [5, 11, 23].\n\nEffective job-search channels include Wellfound, Fonzi, niche AI groups on LinkedIn, Discord/Slack, and an active GitHub portfolio [4, 10, 16, 22, 28].\n\n## Job openings in India for 2-year-experienced AI Engineers  \n\n*No source in the provided list enumerates current Indian job postings that require exactly two years of experience and the full stack of LangChain, RAG, Python, FastAPI, React, and Azure AI. Consequently, specific openings cannot be listed from the evidence.*\n\n## Learning resources to deepen the required skill set  \n- **LangChain & RAG** – Free self-paced courses from LangChain Academy covering basics, agents, testing, deployment, and monitoring [1]; DeepLearning.AI short LangChain course by creator Harrison Chase [7]; additional introductory LangChain videos from DeepLearning.AI [19].  \n- **HITL & LLM fundamentals** – Careery.pro article (2026) includes LLM fundamentals and RAG architecture questions, useful for interview prep [18]; Technovids interview guide discusses production-grade AI topics such as vector databases and deployments [12].  \n- **FastAPI & Docker** – Dataquest “AI Engineer in Python” path builds FastAPI services and Docker deployment [13]; IBM Generative AI Engineering Professional Certificate covers RAG and agents with Hugging Face and LangChain [30].  \n- **React front-end integration** – The FastAPI-React stack is exercised in portfolio projects [9].  \n- **Production best practices** – Articles on classic infrastructure components (APIs, queues, observability, rate limiting) [8]; guidance on batching, memory utilization, and request scheduling for LLMs [20]; quality metrics beyond latency (correctness, relevance, hallucination rate) [14].\n\n## 15 production-oriented interview questions & model answers  \n\n| # | Question (production focus) | Model answer (key points) |\n|---|-----------------------------|---------------------------|\n| 1 | **How would you design a scalable RAG service that serves millions of queries per day?** | Separate ingestion (document chunking, embedding) from serving; store embeddings in a vector DB; use a cache layer for frequent queries; autoscale FastAPI workers behind a load balancer; monitor latency, SLOs, and cost [8, 20, 26]. |\n| 2 | **What components are essential in a production AI API?** | API gateway, authentication, rate limiting, request queue, model inference service, logging/observability, fallback mechanisms [8]. |\n| 3 | **Explain how you would implement HITL feedback to improve a chatbot’s responses.** | Log user-question & model answer; expose a UI for human reviewers to label correctness; feed corrected pairs into periodic fine-tuning; monitor hallucination rate and tool-use success [14]. |\n| 4 | **Describe the steps to secure a FastAPI endpoint that calls Azure OpenAI.** | Use Azure AD token acquisition, validate JWT in FastAPI middleware, enforce least-privilege scopes, enable HTTPS, audit logs [8]. |\n| 5 | **How do you handle LLM request batching to reduce GPU costs?** | Group incoming requests into batches of similar length, pad to max token count, schedule on the same GPU, use async workers to maximize utilization [20]. |\n| 6 | **What observability metrics would you track for a RAG pipeline?** | End-to-end latency, requests-per-second, cache hit rate, vector DB query latency, answer relevance score, hallucination rate, cost per request [14, 8]. |\n| 7 | **Give an example of a fallback strategy when the LLM service is unavailable.** | Return a cached static answer or a “knowledge-base only” response; log the incident; trigger a circuit-breaker to prevent overload [8]. |\n| 8 | **",
+    "citations": [
+      {
+        "url": "https://www.eduzek.com/blog/best-langchain-courses-in-2026-free-paid-eduzek",
+        "claim": "LangChain Academy provides free self‑paced courses covering LangChain basics, agent building, testing, deployment, and monitoring.",
+        "index": 1,
+        "quote": "The academy offers learning resources organized around building, testing, deploying, and monitoring agents.",
+        "title": "Best LangChain Courses in 2026 (Free & Paid) | Eduzek - Eduzek",
+        "note_id": "776bbebf-a333-40c9-ba86-27fd8d335cde",
+        "confidence": "high",
+        "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+      },
+      {
+        "url": "https://www.firecrawl.dev/blog/best-ai-resources",
+        "claim": "DeepLearning.AI short courses include a LangChain course taught by its creator Harrison Chase, providing industry‑standard instruction for interview preparation.",
+        "index": 7,
+        "quote": "LangChain for LLM Application Development where LangChain creator Harrison Chase teaches the industry-standard framework.",
+        "title": "Best Hands-On Resources to Learn AI Engineering in 2026",
+        "note_id": "20ce682c-fc78-4bc9-bb2f-da08b6bddd48",
+        "confidence": "high",
+        "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+      },
+      {
+        "url": "https://www.dataquest.io/blog/best-generative-ai-courses",
+        "claim": "The Dataquest AI Engineer in Python path includes building AI applications using FastAPI and deploying them with Docker.",
+        "index": 13,
+        "quote": "Building AI applications with FastAPI and deploying with Docker",
+        "title": "Best Generative AI Courses in 2026",
+        "note_id": "329b4ba6-ea56-48e1-97b7-76b9f82e9413",
+        "confidence": "high",
+        "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+      },
+      {
+        "url": "https://www.dataquest.io/blog/best-generative-ai-courses",
+        "claim": "The IBM Generative AI Engineering Professional Certificate covers RAG and AI agents using Hugging Face and LangChain.",
+        "index": 30,
+        "quote": "RAG and AI agents using Hugging Face and LangChain",
+        "title": "Best Generative AI Courses in 2026",
+        "note_id": "4f35dd4a-0f05-46dd-996c-c9bb61dd7201",
+        "confidence": "high",
+        "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+      },
+      {
+        "url": "https://www.educative.io/blog/a-strategic-plan-for-your-next-coding-interview",
+        "claim": "Create personal portfolio projects that highlight in‑demand technologies relevant to the target role.",
+        "index": 9,
+        "quote": "A great hands‑on way to prep for interviews is to work on some personal projects. You can tailor these projects to showcase relevant, in‑demand skills for your next job interview.",
+        "title": "A strategic plan for your next coding interview in 2026",
+        "note_id": "3f1482b2-221a-47ae-85a9-b868bd0df3d4",
+        "confidence": "high",
+        "sub_question": "What proven interview‑preparation strategies (mock interviews, portfolio projects, system‑design practice, coding challenges) are recommended for candidates at this experience level?"
+      },
+      {
+        "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+        "claim": "The guide lists several AI system design interview prompts that cover LLM integration and RAG, such as designing a ChatGPT‑like assistant, a retrieval‑augmented generation system, and an LLM inference platform.",
+        "index": 2,
+        "quote": "Design a ChatGPT-like conversational assistant. Design a retrieval-augmented generation system. Design an LLM inference platform. Design an AI agent that can call external tools.",
+        "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+        "note_id": "8038d124-fb69-4c88-b08a-7dbd000a2c83",
+        "confidence": "high",
+        "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+      },
+      {
+        "url": "https://technovids.com/ai-engineering-interview-questions",
+        "claim": "AI engineering interviews assess practical API development skills, specifically calling LLM APIs, parsing JSON, and building FastAPI endpoints.",
+        "index": 24,
+        "quote": "Can you call an LLM API, parse JSON, build a FastAPI endpoint, and handle errors correctly?",
+        "title": "AI Engineering Interview Questions 2026: RAG, LLMs & Agents",
+        "note_id": "1994b77e-cde9-484f-b87f-fe9e4f9170fe",
+        "confidence": "high",
+        "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+      },
+      {
+        "url": "https://www.ayautomate.com/blog/ai-engineer-salary-guide-2026",
+        "claim": "In India, junior AI engineers with 0-2 years of experience earn a total compensation ranging from ₹12L to ₹25L (approximately $14K to $30K USD).",
+        "index": 5,
+        "quote": "Junior: ₹12L-₹25L total (~$14K-$30K USD)",
+        "title": "AI Engineer Salary 2026: Seniors $220K-$310K Base (US)",
+        "note_id": "4b9a3106-8e5a-4e27-b7bd-998ee31a62f7",
+        "confidence": "high",
+        "sub_question": "What are the salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack specifically in India as of 2024?"
+      },
+      {
+        "url": "https://www.recrew.ai/salary-guides/ai-ml-engineer",
+        "claim": "Mid-level AI/ML Engineers with 2-5 years of experience earn a salary range of ₹22 to ₹40 LPA at product companies in India.",
+        "index": 11,
+        "quote": "Mid-level (2-5 years): ₹22 to 40 LPA at product companies",
+        "title": "AI/ML Engineer Salary in India 2026 - Full Breakdown",
+        "note_id": "229b4281-9d50-473a-b914-e0f499471440",
+        "confidence": "high",
+        "sub_question": "What are the salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack specifically in India as of 2024?"
+      },
+      {
+        "url": "https://www.recrew.ai/salary-guides/ai-ml-engineer",
+        "claim": "FAANG and unicorn employers in India pay two to three times higher salaries than traditional IT services firms for the same level of AI/ML experience.",
+        "index": 23,
+        "quote": "FAANG and unicorn employers pay 2 to 3x more than IT services firms for identical years of AI/ML experience.",
+        "title": "AI/ML Engineer Salary in India 2026 - Full Breakdown",
+        "note_id": "3565c148-d9b5-4bbe-8369-70758e26df74",
+        "confidence": "high",
+        "sub_question": "What are the salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack specifically in India as of 2024?"
+      },
+      {
+        "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+        "claim": "Wellfound (formerly AngelList Talent) is a startup‑focused job board that offers salary and equity transparency and lets AI engineers connect directly with founders and first‑hire CTOs.",
+        "index": 4,
+        "quote": "Wellfound is a startup-focused platform that lists thousands of early-stage and growth-stage companies... Salary and equity transparency on most postings, Direct connection to startup founders and first-hire CTOs.",
+        "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+        "note_id": "99c9257e-03ae-4358-bc22-72c7db9d5597",
+        "confidence": "high",
+        "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+      },
+      {
+        "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+        "claim": "Discord, Slack, and Reddit AI‑focused communities provide informal #jobs channels and peer referrals, making them high‑signal networking venues for AI engineer opportunities.",
+        "index": 10,
+        "quote": "Discord hosts thousands of real-time communities for AI and open-source projects... Many include channels like #jobs or #hiring where opportunities are shared informally. Slack communities function as semi-closed professional hubs... Reddit provides forums like r/MachineLearning, r/datascience, and r/MLjobs where professionals discuss industry trends, share career advice, and post opportunities.",
+        "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+        "note_id": "dc788541-a7f4-431e-ad3a-89dd85f27d57",
+        "confidence": "high",
+        "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+      },
+      {
+        "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+        "claim": "LinkedIn has massive reach (310 million monthly users) but is noisy; using niche AI groups and project‑focused profile details improves visibility for AI engineer roles.",
+        "index": 16,
+        "quote": "LinkedIn remains the default professional network with 310+ million monthly active users, but it’s increasingly noisy for AI specialists due to recruiter spam and algorithm-driven clutter. Focus your profile on project-based highlights with concrete outcomes.",
+        "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+        "note_id": "5fdd29cd-6f91-4c04-8ec9-e46a6adc094a",
+        "confidence": "high",
+        "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+      },
+      {
+        "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+        "claim": "GitHub acts as a portfolio network where recruiters view open‑source contributions, and AI engineers can earn AI code‑review badges that signal quality to employers.",
+        "index": 22,
+        "quote": "GitHub functions as a portfolio network. Your repos, contributions, and open-source activity are visible to recruiters and hiring managers. In 2026, GitHub even offers AI code-review badges that signal code quality to employers.",
+        "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+        "note_id": "5f508825-9f9c-4f79-9b88-6768c8f88a95",
+        "confidence": "high",
+        "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+      },
+      {
+        "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+        "claim": "Curated marketplaces like Fonzi match AI engineers with vetted AI‑first companies, reducing noise and bias compared to general job boards.",
+        "index": 28,
+        "quote": "Fonzi is a curated talent marketplace built specifically for AI engineers, ML researchers, infra engineers, and LLM specialists... Candidates are reviewed and admitted based on skills, experience, and potential... The result is a smaller pool of higher-quality matches on both sides.",
+        "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+        "note_id": "a76af10e-5ada-4b68-b759-0dfbac58023a",
+        "confidence": "high",
+        "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+      },
+      {
+        "url": "https://www.eduzek.com/blog/best-langchain-courses-in-2026-free-paid-eduzek",
+        "claim": "DeepLearning.AI offers free introductory LangChain courses, including “LangChain for LLM Application Development” and “Chat with Your Data,” teaching core concepts and RAG fundamentals.",
+        "index": 19,
+        "quote": "Two well-known options are LangChain for LLM Application Development and LangChain: Chat with Your Data.",
+        "title": "Best LangChain Courses in 2026 (Free & Paid) | Eduzek - Eduzek",
+        "note_id": "23dc47a3-a112-441b-b371-15311e8691ff",
+        "confidence": "high",
+        "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+      },
+      {
+        "url": "https://careery.pro/blog/ai-careers/ai-engineer-interview-questions",
+        "claim": "The article includes LLM fundamentals and RAG architecture questions, covering topics such as transformers, tokenization, embeddings, chunking, vector databases, and hybrid search.",
+        "index": 18,
+        "quote": "LLM fundamentals questions covering transformers, tokenization, embeddings, and evaluation ... RAG architecture questions including chunking, vector databases, hybrid search, and quality metrics.",
+        "title": "AI Engineer Interview Questions & Answers: 50+ Questions for 2026 | Careery Blog",
+        "note_id": "06af4c08-db59-40b9-9c6d-74d6b838d606",
+        "confidence": "high",
+        "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+      },
+      {
+        "url": "https://technovids.com/ai-engineering-interview-questions",
+        "claim": "Technovids provides an interview preparation guide covering production-oriented AI engineering topics like LLMs, RAG, vector databases, and deployments.",
+        "index": 12,
+        "quote": "AI engineering interviews test your ability to build production AI applications — not just theory. This guide covers every topic area interviewers test: LLMs, prompt engineering, RAG, vector databases, AI agents, LangChain, MCP, deployment, system design, and how to walk through your projects.",
+        "title": "AI Engineering Interview Questions 2026: RAG, LLMs & Agents",
+        "note_id": "d24f3c35-f5a3-4fd4-9f05-dfcc94d7588a",
+        "confidence": "high",
+        "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+      },
+      {
+        "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+        "claim": "Production AI systems must include classic infrastructure components like APIs, queues, storage, authentication, observability, rate limiting, and reliable deployment.",
+        "index": 8,
+        "quote": "An AI product needs APIs, queues, storage, authentication, observability, rate limiting, and reliable deployment.",
+        "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+        "note_id": "a943ea1e-8f84-40f5-827b-c8c95342fffe",
+        "confidence": "high",
+        "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+      },
+      {
+        "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+        "claim": "Because LLM requests consume expensive GPU memory, a production design should optimize batching, memory utilization, model placement, and request scheduling.",
+        "index": 20,
+        "quote": "An LLM request can occupy expensive GPU memory while processing a long prompt and generating hundreds of tokens. The architecture must therefore optimize batching, memory utilization, model placement, and request scheduling.",
+        "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+        "note_id": "fbbdbb83-8d12-43fd-9638-f40b65565745",
+        "confidence": "high",
+        "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+      },
+      {
+        "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+        "claim": "Beyond latency and throughput, AI system quality metrics should include answer correctness, relevance, groundedness, hallucination rate, tool‑use success, and safety‑policy compliance.",
+        "index": 14,
+        "quote": "AI systems need measures such as: Answer correctness, Relevance, Groundedness, Retrieval quality, Hallucination rate, Tool-use success, Safety-policy compliance.",
+        "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+        "note_id": "cf083c15-11a8-4b62-bf39-f3b00e32cf88",
+        "confidence": "high",
+        "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+      },
+      {
+        "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+        "claim": "A recommended interview answer structure includes clarifying the product, defining scale and SLOs, separating application and model layers, tracing the request path, and discussing failure, quality, and cost.",
+        "index": 26,
+        "quote": "Step 1: Clarify the product... Step 2: Define scale and service-level objectives... Step 3: Separate the application layer from the model layer... Step 4: Trace the complete request path... Step 5: Discuss failure, quality, and cost.",
+        "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+        "note_id": "60054b2e-9968-4180-99b9-af651aa6dd93",
+        "confidence": "high",
+        "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+      }
+    ],
+    "validation": {
+      "words": 622,
+      "markers": 22,
+      "coverage": 0.9375,
+      "repaired": true,
+      "precision": 1.0,
+      "sentences": 16,
+      "truncated": false,
+      "valid_markers": 22,
+      "unused_sources": 8,
+      "cited_sentences": 15,
+      "unknown_markers": []
+    },
+    "tokens_used": 12127,
+    "model": "support-chat",
+    "error": null
+  },
+  "registry": [
+    {
+      "index": 1,
+      "note_id": "776bbebf-a333-40c9-ba86-27fd8d335cde",
+      "url": "https://www.eduzek.com/blog/best-langchain-courses-in-2026-free-paid-eduzek",
+      "title": "Best LangChain Courses in 2026 (Free & Paid) | Eduzek - Eduzek",
+      "claim": "LangChain Academy provides free self‑paced courses covering LangChain basics, agent building, testing, deployment, and monitoring.",
+      "quote": "The academy offers learning resources organized around building, testing, deploying, and monitoring agents.",
+      "confidence": "high",
+      "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+    },
+    {
+      "index": 2,
+      "note_id": "8038d124-fb69-4c88-b08a-7dbd000a2c83",
+      "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+      "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+      "claim": "The guide lists several AI system design interview prompts that cover LLM integration and RAG, such as designing a ChatGPT‑like assistant, a retrieval‑augmented generation system, and an LLM inference platform.",
+      "quote": "Design a ChatGPT-like conversational assistant. Design a retrieval-augmented generation system. Design an LLM inference platform. Design an AI agent that can call external tools.",
+      "confidence": "high",
+      "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+    },
+    {
+      "index": 3,
+      "note_id": "732c0285-01f8-4ed1-b469-4aebf799a82e",
+      "url": "https://www.educative.io/blog/a-strategic-plan-for-your-next-coding-interview",
+      "title": "A strategic plan for your next coding interview in 2026",
+      "claim": "Set up mock interviews with peers to rehearse answering questions and demonstrate soft‑skill communication.",
+      "quote": "Another way you can prepare for your interview is by setting up mock interviews with friends or classmates. Mock interviews are a great way to practice demonstrating your soft skills.",
+      "confidence": "high",
+      "sub_question": "What proven interview‑preparation strategies (mock interviews, portfolio projects, system‑design practice, coding challenges) are recommended for candidates at this experience level?"
+    },
+    {
+      "index": 4,
+      "note_id": "99c9257e-03ae-4358-bc22-72c7db9d5597",
+      "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+      "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+      "claim": "Wellfound (formerly AngelList Talent) is a startup‑focused job board that offers salary and equity transparency and lets AI engineers connect directly with founders and first‑hire CTOs.",
+      "quote": "Wellfound is a startup-focused platform that lists thousands of early-stage and growth-stage companies... Salary and equity transparency on most postings, Direct connection to startup founders and first-hire CTOs.",
+      "confidence": "high",
+      "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+    },
+    {
+      "index": 5,
+      "note_id": "4b9a3106-8e5a-4e27-b7bd-998ee31a62f7",
+      "url": "https://www.ayautomate.com/blog/ai-engineer-salary-guide-2026",
+      "title": "AI Engineer Salary 2026: Seniors $220K-$310K Base (US)",
+      "claim": "In India, junior AI engineers with 0-2 years of experience earn a total compensation ranging from ₹12L to ₹25L (approximately $14K to $30K USD).",
+      "quote": "Junior: ₹12L-₹25L total (~$14K-$30K USD)",
+      "confidence": "high",
+      "sub_question": "What are the salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack specifically in India as of 2024?"
+    },
+    {
+      "index": 6,
+      "note_id": "3e7a44a1-7a05-44ce-8200-3dd9d5716411",
+      "url": "https://careery.pro/blog/ai-careers/ai-engineer-interview-questions",
+      "title": "AI Engineer Interview Questions & Answers: 50+ Questions for 2026 | Careery Blog",
+      "claim": "The Careery.pro blog publishes a 2026 article titled “AI Engineer Interview Questions & Answers: 50+ Questions for 2026” that offers production‑oriented interview questions and model answers for AI engineers.",
+      "quote": "AI Engineer Interview Questions & Answers: 50+ Questions for 2026 ... 50+ real questions covering RAG, LLMs, agents, system design — with what interviewers actually evaluate.",
+      "confidence": "high",
+      "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+    },
+    {
+      "index": 7,
+      "note_id": "20ce682c-fc78-4bc9-bb2f-da08b6bddd48",
+      "url": "https://www.firecrawl.dev/blog/best-ai-resources",
+      "title": "Best Hands-On Resources to Learn AI Engineering in 2026",
+      "claim": "DeepLearning.AI short courses include a LangChain course taught by its creator Harrison Chase, providing industry‑standard instruction for interview preparation.",
+      "quote": "LangChain for LLM Application Development where LangChain creator Harrison Chase teaches the industry-standard framework.",
+      "confidence": "high",
+      "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+    },
+    {
+      "index": 8,
+      "note_id": "a943ea1e-8f84-40f5-827b-c8c95342fffe",
+      "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+      "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+      "claim": "Production AI systems must include classic infrastructure components like APIs, queues, storage, authentication, observability, rate limiting, and reliable deployment.",
+      "quote": "An AI product needs APIs, queues, storage, authentication, observability, rate limiting, and reliable deployment.",
+      "confidence": "high",
+      "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+    },
+    {
+      "index": 9,
+      "note_id": "3f1482b2-221a-47ae-85a9-b868bd0df3d4",
+      "url": "https://www.educative.io/blog/a-strategic-plan-for-your-next-coding-interview",
+      "title": "A strategic plan for your next coding interview in 2026",
+      "claim": "Create personal portfolio projects that highlight in‑demand technologies relevant to the target role.",
+      "quote": "A great hands‑on way to prep for interviews is to work on some personal projects. You can tailor these projects to showcase relevant, in‑demand skills for your next job interview.",
+      "confidence": "high",
+      "sub_question": "What proven interview‑preparation strategies (mock interviews, portfolio projects, system‑design practice, coding challenges) are recommended for candidates at this experience level?"
+    },
+    {
+      "index": 10,
+      "note_id": "dc788541-a7f4-431e-ad3a-89dd85f27d57",
+      "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+      "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+      "claim": "Discord, Slack, and Reddit AI‑focused communities provide informal #jobs channels and peer referrals, making them high‑signal networking venues for AI engineer opportunities.",
+      "quote": "Discord hosts thousands of real-time communities for AI and open-source projects... Many include channels like #jobs or #hiring where opportunities are shared informally. Slack communities function as semi-closed professional hubs... Reddit provides forums like r/MachineLearning, r/datascience, and r/MLjobs where professionals discuss industry trends, share career advice, and post opportunities.",
+      "confidence": "high",
+      "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+    },
+    {
+      "index": 11,
+      "note_id": "229b4281-9d50-473a-b914-e0f499471440",
+      "url": "https://www.recrew.ai/salary-guides/ai-ml-engineer",
+      "title": "AI/ML Engineer Salary in India 2026 - Full Breakdown",
+      "claim": "Mid-level AI/ML Engineers with 2-5 years of experience earn a salary range of ₹22 to ₹40 LPA at product companies in India.",
+      "quote": "Mid-level (2-5 years): ₹22 to 40 LPA at product companies",
+      "confidence": "high",
+      "sub_question": "What are the salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack specifically in India as of 2024?"
+    },
+    {
+      "index": 12,
+      "note_id": "d24f3c35-f5a3-4fd4-9f05-dfcc94d7588a",
+      "url": "https://technovids.com/ai-engineering-interview-questions",
+      "title": "AI Engineering Interview Questions 2026: RAG, LLMs & Agents",
+      "claim": "Technovids provides an interview preparation guide covering production-oriented AI engineering topics like LLMs, RAG, vector databases, and deployments.",
+      "quote": "AI engineering interviews test your ability to build production AI applications — not just theory. This guide covers every topic area interviewers test: LLMs, prompt engineering, RAG, vector databases, AI agents, LangChain, MCP, deployment, system design, and how to walk through your projects.",
+      "confidence": "high",
+      "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+    },
+    {
+      "index": 13,
+      "note_id": "329b4ba6-ea56-48e1-97b7-76b9f82e9413",
+      "url": "https://www.dataquest.io/blog/best-generative-ai-courses",
+      "title": "Best Generative AI Courses in 2026",
+      "claim": "The Dataquest AI Engineer in Python path includes building AI applications using FastAPI and deploying them with Docker.",
+      "quote": "Building AI applications with FastAPI and deploying with Docker",
+      "confidence": "high",
+      "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+    },
+    {
+      "index": 14,
+      "note_id": "cf083c15-11a8-4b62-bf39-f3b00e32cf88",
+      "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+      "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+      "claim": "Beyond latency and throughput, AI system quality metrics should include answer correctness, relevance, groundedness, hallucination rate, tool‑use success, and safety‑policy compliance.",
+      "quote": "AI systems need measures such as: Answer correctness, Relevance, Groundedness, Retrieval quality, Hallucination rate, Tool-use success, Safety-policy compliance.",
+      "confidence": "high",
+      "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+    },
+    {
+      "index": 15,
+      "note_id": "a26c2614-3a3c-46ec-a267-04d1ee4af704",
+      "url": "https://www.educative.io/blog/a-strategic-plan-for-your-next-coding-interview",
+      "title": "A strategic plan for your next coding interview in 2026",
+      "claim": "Practice system‑design problems by turning vague requirements into clear designs, discussing scalability, trade‑offs, and communicating decisions.",
+      "quote": "Designing from requirements: Practice turning vague feature requests into clear system requirements.",
+      "confidence": "high",
+      "sub_question": "What proven interview‑preparation strategies (mock interviews, portfolio projects, system‑design practice, coding challenges) are recommended for candidates at this experience level?"
+    },
+    {
+      "index": 16,
+      "note_id": "5fdd29cd-6f91-4c04-8ec9-e46a6adc094a",
+      "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+      "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+      "claim": "LinkedIn has massive reach (310 million monthly users) but is noisy; using niche AI groups and project‑focused profile details improves visibility for AI engineer roles.",
+      "quote": "LinkedIn remains the default professional network with 310+ million monthly active users, but it’s increasingly noisy for AI specialists due to recruiter spam and algorithm-driven clutter. Focus your profile on project-based highlights with concrete outcomes.",
+      "confidence": "high",
+      "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+    },
+    {
+      "index": 17,
+      "note_id": "d064f62a-169a-4afd-a222-10b2d8ae0e4b",
+      "url": "https://www.recrew.ai/salary-guides/ai-ml-engineer",
+      "title": "AI/ML Engineer Salary in India 2026 - Full Breakdown",
+      "claim": "Engineers with skills like LLM fine-tuning, RAG, and LLMOps earn 20 to 40% higher compensation compared to generalist machine learning profiles.",
+      "quote": "LLM fine-tuning, RAG, and LLMOps experience command 20 to 40% more than generalist ML profiles at equivalent experience.",
+      "confidence": "high",
+      "sub_question": "What are the salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack specifically in India as of 2024?"
+    },
+    {
+      "index": 18,
+      "note_id": "06af4c08-db59-40b9-9c6d-74d6b838d606",
+      "url": "https://careery.pro/blog/ai-careers/ai-engineer-interview-questions",
+      "title": "AI Engineer Interview Questions & Answers: 50+ Questions for 2026 | Careery Blog",
+      "claim": "The article includes LLM fundamentals and RAG architecture questions, covering topics such as transformers, tokenization, embeddings, chunking, vector databases, and hybrid search.",
+      "quote": "LLM fundamentals questions covering transformers, tokenization, embeddings, and evaluation ... RAG architecture questions including chunking, vector databases, hybrid search, and quality metrics.",
+      "confidence": "high",
+      "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+    },
+    {
+      "index": 19,
+      "note_id": "23dc47a3-a112-441b-b371-15311e8691ff",
+      "url": "https://www.eduzek.com/blog/best-langchain-courses-in-2026-free-paid-eduzek",
+      "title": "Best LangChain Courses in 2026 (Free & Paid) | Eduzek - Eduzek",
+      "claim": "DeepLearning.AI offers free introductory LangChain courses, including “LangChain for LLM Application Development” and “Chat with Your Data,” teaching core concepts and RAG fundamentals.",
+      "quote": "Two well-known options are LangChain for LLM Application Development and LangChain: Chat with Your Data.",
+      "confidence": "high",
+      "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+    },
+    {
+      "index": 20,
+      "note_id": "fbbdbb83-8d12-43fd-9638-f40b65565745",
+      "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+      "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+      "claim": "Because LLM requests consume expensive GPU memory, a production design should optimize batching, memory utilization, model placement, and request scheduling.",
+      "quote": "An LLM request can occupy expensive GPU memory while processing a long prompt and generating hundreds of tokens. The architecture must therefore optimize batching, memory utilization, model placement, and request scheduling.",
+      "confidence": "high",
+      "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+    },
+    {
+      "index": 21,
+      "note_id": "16429bb1-788a-4b73-a747-7e5f45e68e22",
+      "url": "https://www.educative.io/blog/a-strategic-plan-for-your-next-coding-interview",
+      "title": "A strategic plan for your next coding interview in 2026",
+      "claim": "Solve coding challenges using reusable problem‑solving patterns (e.g., sliding window, BFS/DFS, two pointers) instead of memorizing solutions.",
+      "quote": "Focus on high‑level patterns over memorization: Learn reusable problem‑solving patterns like sliding window, BFS/DFS, and two pointers so you can adapt to unfamiliar questions on the spot.",
+      "confidence": "high",
+      "sub_question": "What proven interview‑preparation strategies (mock interviews, portfolio projects, system‑design practice, coding challenges) are recommended for candidates at this experience level?"
+    },
+    {
+      "index": 22,
+      "note_id": "5f508825-9f9c-4f79-9b88-6768c8f88a95",
+      "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+      "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+      "claim": "GitHub acts as a portfolio network where recruiters view open‑source contributions, and AI engineers can earn AI code‑review badges that signal quality to employers.",
+      "quote": "GitHub functions as a portfolio network. Your repos, contributions, and open-source activity are visible to recruiters and hiring managers. In 2026, GitHub even offers AI code-review badges that signal code quality to employers.",
+      "confidence": "high",
+      "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+    },
+    {
+      "index": 23,
+      "note_id": "3565c148-d9b5-4bbe-8369-70758e26df74",
+      "url": "https://www.recrew.ai/salary-guides/ai-ml-engineer",
+      "title": "AI/ML Engineer Salary in India 2026 - Full Breakdown",
+      "claim": "FAANG and unicorn employers in India pay two to three times higher salaries than traditional IT services firms for the same level of AI/ML experience.",
+      "quote": "FAANG and unicorn employers pay 2 to 3x more than IT services firms for identical years of AI/ML experience.",
+      "confidence": "high",
+      "sub_question": "What are the salary ranges and compensation trends for AI Engineers with ~2 years of experience and the specified tech stack specifically in India as of 2024?"
+    },
+    {
+      "index": 24,
+      "note_id": "1994b77e-cde9-484f-b87f-fe9e4f9170fe",
+      "url": "https://technovids.com/ai-engineering-interview-questions",
+      "title": "AI Engineering Interview Questions 2026: RAG, LLMs & Agents",
+      "claim": "AI engineering interviews assess practical API development skills, specifically calling LLM APIs, parsing JSON, and building FastAPI endpoints.",
+      "quote": "Can you call an LLM API, parse JSON, build a FastAPI endpoint, and handle errors correctly?",
+      "confidence": "high",
+      "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+    },
+    {
+      "index": 25,
+      "note_id": "f0a5a2b2-9d91-4a78-8e02-8d705b792b3a",
+      "url": "https://www.firecrawl.dev/blog/best-ai-resources",
+      "title": "Best Hands-On Resources to Learn AI Engineering in 2026",
+      "claim": "The OpenAI Cookbook offers production‑ready code examples for building RAG systems with vector databases, multi‑agent orchestration, and function‑calling workflows.",
+      "quote": "Production-ready code examples for building RAG systems with vector databases, multi-agent orchestration, and function calling workflows that connect LLMs to external tools.",
+      "confidence": "high",
+      "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+    },
+    {
+      "index": 26,
+      "note_id": "60054b2e-9968-4180-99b9-af651aa6dd93",
+      "url": "https://dev.to/arslan_ah/ai-system-design-interview-questions-chatgpt-rag-llm-inference-and-agents-1doi",
+      "title": "AI System Design Interview Questions: ChatGPT, RAG, LLM Inference, and Agents - DEV Community",
+      "claim": "A recommended interview answer structure includes clarifying the product, defining scale and SLOs, separating application and model layers, tracing the request path, and discussing failure, quality, and cost.",
+      "quote": "Step 1: Clarify the product... Step 2: Define scale and service-level objectives... Step 3: Separate the application layer from the model layer... Step 4: Trace the complete request path... Step 5: Discuss failure, quality, and cost.",
+      "confidence": "high",
+      "sub_question": "What are 15 production‑oriented interview questions (with model answers) that cover LLM integration, RAG architecture, HITL workflows, API design with FastAPI, front‑end integration with React, and Azure cloud deployment?"
+    },
+    {
+      "index": 27,
+      "note_id": "bdf640ba-490d-41a1-a5f5-f544e38a8023",
+      "url": "https://www.educative.io/blog/a-strategic-plan-for-your-next-coding-interview",
+      "title": "A strategic plan for your next coding interview in 2026",
+      "claim": "Follow a 4–12‑week structured timeline with a weekly roadmap and maintain a prep log to track mistakes and reinforce learning.",
+      "quote": "Follow a structured timeline: Set aside 4–12 weeks depending on your experience level, and use a week‑by‑week roadmap to hold yourself accountable and cover all major topics.",
+      "confidence": "high",
+      "sub_question": "What proven interview‑preparation strategies (mock interviews, portfolio projects, system‑design practice, coding challenges) are recommended for candidates at this experience level?"
+    },
+    {
+      "index": 28,
+      "note_id": "a76af10e-5ada-4b68-b759-0dfbac58023a",
+      "url": "https://fonzi.ai/blog/best-professional-networking-sites",
+      "title": "Best Professional Networking Sites: Top Platforms for Job Networking | Fonzi AI",
+      "claim": "Curated marketplaces like Fonzi match AI engineers with vetted AI‑first companies, reducing noise and bias compared to general job boards.",
+      "quote": "Fonzi is a curated talent marketplace built specifically for AI engineers, ML researchers, infra engineers, and LLM specialists... Candidates are reviewed and admitted based on skills, experience, and potential... The result is a smaller pool of higher-quality matches on both sides.",
+      "confidence": "high",
+      "sub_question": "Which professional communities, job boards, and networking tactics are most effective for discovering AI Engineer roles that match this skill set?"
+    },
+    {
+      "index": 29,
+      "note_id": "90dd6ec1-e9b9-4f9c-80fa-0cf7383abfcd",
+      "url": "https://careery.pro/blog/ai-careers/ai-engineer-interview-questions",
+      "title": "AI Engineer Interview Questions & Answers: 50+ Questions for 2026 | Careery Blog",
+      "claim": "System‑design questions in the Careery.pro post address end‑to‑end AI product design, including RAG chatbots, inference gateways, and document pipelines, which are relevant to production deployment.",
+      "quote": "System design questions for AI products — RAG chatbots, inference gateways, and document pipelines.",
+      "confidence": "high",
+      "sub_question": "Which reputable sources (e.g., industry blogs, interview prep platforms, technical publications) provide production‑oriented AI Engineer interview questions with model answers covering LLM integration, RAG architecture, HITL workflows, FastAPI, React, and Azure deployment?"
+    },
+    {
+      "index": 30,
+      "note_id": "4f35dd4a-0f05-46dd-996c-c9bb61dd7201",
+      "url": "https://www.dataquest.io/blog/best-generative-ai-courses",
+      "title": "Best Generative AI Courses in 2026",
+      "claim": "The IBM Generative AI Engineering Professional Certificate covers RAG and AI agents using Hugging Face and LangChain.",
+      "quote": "RAG and AI agents using Hugging Face and LangChain",
+      "confidence": "high",
+      "sub_question": "Which up‑to‑date learning resources (courses, tutorials, books, blogs, official docs) best deepen knowledge in LangChain, HITL, RAG pipelines, Azure AI services, and production deployment with FastAPI and React for interview preparation?"
+    }
+  ],
+  "notes_total": 38
+}
