@@ -67,3 +67,34 @@ class ReportOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ReportSummaryOut(BaseModel):
+    """A row in the library: enough to choose a report, not the report itself.
+
+    Shipping `markdown` for every row would move megabytes to render a list,
+    and the list has no reader for it. The audit numbers are copied out of the
+    stored validation so the library can sort/filter without opening a report.
+    """
+
+    report_id: uuid.UUID
+    job_id: uuid.UUID
+    question: str
+    status: ReportStatus
+    words: int = 0
+    markers: int = 0
+    precision: float = 0.0
+    coverage: float = 0.0
+    citations: int = 0
+    tokens_used: int = 0
+    model: str | None = None
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReportPageOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[ReportSummaryOut]

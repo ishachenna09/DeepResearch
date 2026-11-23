@@ -158,3 +158,33 @@ export interface Report {
   created_at: string;
   updated_at: string;
 }
+
+/* -- Phase 8: the library (one row per report, no markdown) ---------------- */
+
+/**
+ * A library row. `words`/`markers`/`precision`/`coverage` are copied out of the
+ * stored validation server-side so the list never ships the whole report body.
+ */
+export interface ReportSummary {
+  report_id: string;
+  job_id: string;
+  question: string;
+  status: ReportStatus;
+  words: number;
+  markers: number;
+  precision: number;
+  coverage: number;
+  citations: number;
+  tokens_used: number;
+  model: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportPage {
+  total: number;
+  limit: number;
+  offset: number;
+  items: ReportSummary[];
+}

@@ -3,14 +3,21 @@ import { NavLink, useNavigate } from "react-router-dom";
 import api from "../../lib/api";
 import { useAuthStore } from "../../store/auth";
 
-const NAV = [
+const BASE_NAV = [
   { to: "/", label: "Research", end: true },
+  { to: "/library", label: "Library", end: false },
   { to: "/system", label: "System", end: false },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, clear } = useAuthStore();
   const navigate = useNavigate();
+  // Admin is a role-gated route as well as a hidden link: hiding the nav entry
+  // is UX, the 403 from /admin/overview is the actual control.
+  const nav =
+    user?.role === "admin"
+      ? [...BASE_NAV, { to: "/admin", label: "Admin", end: false }]
+      : BASE_NAV;
 
   const logout = async () => {
     try {
@@ -30,7 +37,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <span className="font-semibold">DeepResearch</span>
           </NavLink>
           <nav className="flex items-center gap-1 text-sm">
-            {NAV.map((item) => (
+            {nav.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

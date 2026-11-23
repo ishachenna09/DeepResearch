@@ -1,7 +1,9 @@
 import { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import Admin from "./pages/Admin";
 import Dashboard from "./pages/Dashboard";
 import JobDetail from "./pages/JobDetail";
+import Library from "./pages/Library";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Research from "./pages/Research";
@@ -35,6 +37,22 @@ export default function App() {
         element={
           <Shell>
             <JobDetail />
+          </Shell>
+        }
+      />
+      <Route
+        path="/library"
+        element={
+          <Shell>
+            <Library />
+          </Shell>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <Shell>
+            <Admin />
           </Shell>
         }
       />

@@ -17,7 +17,7 @@ DeepResearch/
 │   ├── app/
 │   │   ├── main.py             # app factory, CORS, SSE, routers
 │   │   ├── core/               # config, JWT/OAuth, RBAC, logging, LLM client, observability
-│   │   ├── api/v1/             # auth, research, reports, admin, health
+│   │   ├── api/v1/             # auth, research, reports, library (list + export), admin, health
 │   │   ├── agents/
 │   │   │   ├── state.py        # ResearchState TypedDict (graph contract)
 │   │   │   ├── graph.py        # LangGraph topology + checkpointer
@@ -27,12 +27,12 @@ DeepResearch/
 │   │   ├── rag/                # page cleaner, chunker, embedder, retriever
 │   │   ├── guardrails/         # untrusted-web-content scanning, citation rules
 │   │   ├── evals/              # deterministic graders for the CI gate (Phase 7)
-│   │   ├── models/  schemas/  services/  workers/
+│   │   ├── services/           # LLM, pricing, trace labelling, report_export (MD/PDF)
 │   ├── alembic/                # migrations
 │   └── tests/                  # unit | integration | graph | e2e
 ├── evals/                      # golden cases + recorded fixtures + run_evals.py
 ├── frontend/                   # React + Vite + Tailwind
-│   └── src/                    # pages/{Research,JobDetail,Dashboard} · components/{research,report}/ · hooks/{useJob,useReport}.ts · lib/{api,research,report,inflight,types}.ts
+│   └── src/                    # pages/{Research,JobDetail,Dashboard,Library,Admin} · components/{research,report,layout}/ · hooks/{useJob,useReport}.ts · lib/{api,research,report,library,inflight,types}.ts
 ├── scripts/                    # start_* , verify_phase*.ps1, seed_questions.py, demo.ps1
 ├── infra/                      # caddy, ec2 deploy, CI workflows
 └── docs/                       # ARCHITECTURE · TECH_DECISIONS (interview) · INTERVIEW_PREP
@@ -53,7 +53,7 @@ DeepResearch/
 | **5** (done) | Writer streams report + **citation validator** | SSE over Redis Streams, claim→source verification |
 | **6** (done) | Writer + critic extracted as **A2A services** | **A2A** protocol, AgentCards, distributed agents |
 | **7** (done) | Eval gate in CI + Langfuse traces + cost dashboard | Deterministic evals, trace sessions, shadow cost |
-| **8** | Report library, export (MD/PDF), admin dashboards | S3/R2, product polish |
+| **8** (done) | Report library, MD/PDF export, admin overview | Derived artifacts vs object storage, PDF generation, RBAC |
 | **9** | Hardening: rate limits, SSRF defense, load + security tests | Production concerns |
 | **10** | Deploy: GH Actions → Docker → EC2 + Vercel → **public URL** | CI/CD, TLS, containers (cloud only) |
 
@@ -113,6 +113,10 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 | `GET` | `/health/agents` | A2A agent cards (writer/critic) or `mode=local` when they run in-process |
 | `GET` | `/health/langfuse` | `ok` / `disabled` / `error` - "configured" is not "working" |
 | `GET` | `/usage?days=30` | measured tokens + shadow cost for the caller (`scope=all`: admin) |
+| `GET` | `/reports?q=&status=&sort=&limit=&offset=` | the caller's report library: question + audit scalars, no markdown, with a pre-pagination `total` |
+| `GET` | `/reports/{id}/export.md` | the stored report as a Markdown attachment (404 if not yours, 409 if not `ready`) |
+| `GET` | `/reports/{id}/export.pdf` | the same report as a paginated A4 PDF (ReportLab, Unicode font, numbered sources) |
+| `GET` | `/admin/overview?days=30` | admin-only snapshot: users, jobs, reports, tokens, shadow cost, per-day/per-model, top users, recent failures |
 
 Status machine: `planning -> awaiting_approval -> researching -> notes_ready`
 (or `rejected` / `failed`). Poll `GET /research/{id}`; a run takes ~2-4 minutes.
@@ -240,6 +244,48 @@ and a gate that runs in ~1 s in CI.
   blend, table dated in the response). The free tier bills $0 - the point is that a token
   regression becomes visible as money. `scope=all` is admin-only: cost is still user data.
 
+### Library, exports and admin (Phase 8)
+
+The product end of the pipeline: find the reports you have written, take one away as a file,
+and see what the whole deployment is doing.
+
+- **The library is a join, not a new table.** `GET /reports` reads `reports` joined to
+  `research_jobs` for the question, owner-scoped by `Report.user_id`. Rows ship the audit
+  scalars (`words`, `markers`, `precision`, `coverage`, citation count, tokens, model) so the
+  list can search, filter and sort in SQL without moving a megabyte of markdown to render
+  titles. `total` is computed before `limit`/`offset`, so paging is not a lie. Search escapes
+  `%` and `_`: a search box is text, not a pattern.
+- **Exports are generated on demand, not stored.** An MD or PDF is a pure function of the row
+  (markdown + citations + validation + question). There is no bucket, no signed URL and no second
+  copy that can drift; a rerun overwrites the row and the next download is current, which is why
+  the response is `Cache-Control: no-store`. Object storage earns its place when an artifact must
+  be immutable (an emailed attachment, a legal archive) - `docs/TECH_DECISIONS.md` §Phase 8
+  records the R2 design we would use then.
+- **PDF is ReportLab, not a browser.** ReportLab is pure Python and deterministic, where
+  WeasyPrint needs Pango/GTK and a headless Chrome is a ~300 MB process per export. Bitstream
+  Vera ships with ReportLab, so an en dash or a curly quote is text rather than a box (the
+  built-in Helvetica is Latin-1 only). Rendering runs in a worker thread - it is synchronous and
+  would otherwise stall the event loop.
+- **A small markdown subset, because HTML is the wrong intermediate.** ReportLab consumes
+  flowables, not block HTML, so the 120-line parser turns the writer's output (headings,
+  paragraphs, bullets, quotes, code, rules and the pipe tables the interview report emits) into
+  Paragraph/Table/Preformatted. `_inline` escapes HTML first and then adds only `<b>`, `<i>`,
+  `<link>` and a monospace font, so a scraped `<` cannot become a tag.
+- **Exports have rules.** Only your own reports (another id is a 404, never a 403 that confirms
+  it exists) and only `ready` ones (409 otherwise - a half-written file is not an answer). The
+  download is an `attachment` with an ASCII slug plus the first 8 hex characters of the report
+  id, so two answers to the same question do not collide. The frontend fetches the bytes with
+  axios (a plain link cannot send the Bearer header) and reads the filename from
+  `Content-Disposition`, which is why CORS exposes that one header.
+- **One admin snapshot.** `GET /admin/overview` aggregates users, jobs, reports, tokens and
+  shadow cost in the window in one round trip, includes failed jobs and reports (they burned
+  tokens too), and returns `generated_at` so a stale dashboard says so. `require_role("admin")`
+  answers 403 before any query runs - the hidden nav link is UX, not the control.
+- **No user-management API.** Role changes are rare; `scripts/set_role.py --list` and
+  `--email ... --role admin` keep that capability where the operator already has database
+  access. A `PATCH /admin/users/{id}` is a privilege-escalation surface waiting for one
+  authorization bug, and is not worth building before there is an audit trail to go with it.
+
 ## Frontend (research UI)
 
 ```powershell
@@ -247,8 +293,9 @@ cd frontend
 npm run dev          # http://localhost:5173 (Vite reads .env* files, not process env)
 ```
 
-Routes: `/` ask a question + your jobs · `/jobs/:jobId` plan approval, live run,
-evidence + cited report · `/system` health badges.
+Routes: `/` ask a question + your jobs · `/library` searchable report list with MD/PDF downloads ·
+`/jobs/:jobId` plan approval, live run, evidence + cited report · `/system` health badges ·
+`/admin` the admin overview (nav link only for the `admin` role).
 
 - **The job page is a state machine mirroring the API's**: `planning` skeleton →
   `PlanEditor` (`awaiting_approval`) → live `RunProgress` (`researching`) → critique card +
@@ -290,7 +337,10 @@ the same way: payloads that must survive protobuf (a `None` title, ints that arr
 event order the SDK requires (Task before status before chunks), the SSE parser, the accumulator
 that reassembles a report, and the ASGI surface (card public, RPC 401/503, `-32601`/`-32001`).
 The eval gate is tested by breaking artifacts on purpose: stripped markers, an invented `[99]`,
-a tampered `validation`, a one-site report, unrecorded tokens.
+a tampered `validation`, a one-site report, unrecorded tokens. The export tests read the PDF back
+with `pypdf` and look for the question, the audit line, the Sources list and the page footer:
+`%PDF-` alone would also pass for a blank page. `parse_blocks` is pinned against a pipe table,
+and `build_context` is tested with both an ORM-shaped row and a fixture dict.
 
 ## Verify a phase (one command)
 
@@ -304,6 +354,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_phase5.ps1   # report, c
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase6.ps1   # A2A cards, auth, agent-generated report, failure
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase7.ps1   # eval gate, /usage, Langfuse spans
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase7.ps1 -Live   # + regenerate a report
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase8.ps1   # library, MD/PDF export, admin
 ```
 
 `verify_phase6.ps1` owns its processes: it starts the writer, the critic and a **second API on
@@ -316,6 +367,14 @@ local path. `-SkipE2E` runs the protocol checks only; `-KeepRunning` leaves the 
 controls, checks `/usage` + RBAC + Langfuse auth, then stops it. `-Live` also regenerates one
 report, asserts its tokens appear in `/usage`, and queries Langfuse by session to prove the span
 landed. It shares Postgres, so do not run it while a report is in flight on another API.
+
+`verify_phase8.ps1` starts a private API on `:8004` (no provider calls) and proves the library is
+owner-scoped with real audit numbers, that search/status/sort work and bad input is a 422, that the
+Markdown is an attachment with the stored audit and sources, and that the PDF has real pages and
+extractable text (read back with `pypdf`, not a magic-byte check). It also registers
+`other@test.com`/`admin@test.com` if missing, promotes the latter with `set_role.py`, and checks
+cross-user report ids are 404, `/admin/overview` is 403 for an agent and complete for an admin,
+and `days=0` is a 422. It writes to the shared dev database; `-KeepRunning` leaves the API up.
 
 Pass `-Base http://localhost:8001/api/v1` when another app already owns `:8000`.
 

@@ -60,6 +60,9 @@ Rule for every answer: **decision → alternative → why we chose it → the tr
 - **"Why shadow cost when everything is free?"** — "The invoice is $0, so a token regression would be invisible. Pricing measured tokens at list prices with one stated 70/30 blend turns 'this got slower/wordier' into 'this got 3× more expensive'."
 - **"Why wrap generation in `propagate_attributes`?"** — "The LangChain callback creates the spans, not my code; ambient attributes are the one seam that labels them. Session = job id, tag = `report`, so one trace is findable without knowing an internal trace id."
 - **"Why not OpenAI?"** — "No usable free tier; we're on Gemini (1M context, free) with Groq failover behind LiteLLM — one config line to swap."
+- **"Why no S3/R2 for exports?"** — "An export is a pure function of a Postgres row: markdown, citations, audit. A bucket adds credentials, lifecycle rules and a second copy that can go stale to serve a download link that is cheaper to render in 0.2 s."
+- **"Why ReportLab instead of WeasyPrint or headless Chrome?"** — "WeasyPrint needs Pango/GTK and Chrome is a 300 MB process per export. ReportLab is pure Python and ships Bitstream Vera, so an en dash is text, not a box — and the test reads the PDF back instead of trusting `%PDF-`."
+- **"Why download blobs instead of signed links?"** — "There is nothing to sign and a URL would put the JWT in browser history. Axios sends the Bearer header, the bytes become an object URL, and CORS exposes exactly one header: `Content-Disposition`."
 
 ---
 
@@ -415,3 +418,72 @@ Langfuse by session, so "traces are configured" is proven by a span, not a key.
 | CI | `.github/workflows/ci.yml` on Python 3.12: install both requirement files, `pytest api/tests`, `python evals/run_evals.py`, upload `evals/results/latest.json` |
 | frontend | `npm run build` clean: **283.35 kB JS / 91.22 kB gzip**; usage cards + per-model table + pricing note + Langfuse badge on `/system` |
 | versions | `langfuse 5.0.4`, `pytest 9.2.0`, FastAPI 0.162.0, Pydantic 2.14.1, `langgraph 1.2.21`; no new runtime dependency was added by this phase |
+
+## Phase 8 - report library, exports and admin overview
+
+The research engine was finished; the product was not. Phase 8 makes the output findable,
+portable and operable, and every decision is about *not* adding moving parts: no object store,
+no new table, no chart library, no user-management API.
+
+| Decision | Chosen | Alternatives considered | Why rejected |
+|---|---|---|---|
+| **Library data model** | `GET /reports` joins `reports` to `research_jobs` for the question; returns audit scalars, not markdown | A `report_library` table; reuse `/research?status=notes_ready` | A join is the normal form: the question already lives in one row, and a copy would need a trigger to stay true. The job list has no report id, no audit and no report status - it answers a different question. |
+| **Export storage** | Generated on demand from the row; `Cache-Control: no-store` | S3/R2 with a stored object per report; a background job that pre-renders | A bucket adds credentials, lifecycle rules, signed URLs and a second source of truth for data Postgres already owns. It earns its place only when the artifact must be immutable - then use content-addressed keys and one `export_key` column. A download is not an archive. |
+| **PDF engine** | ReportLab 5.1 with bundled Bitstream Vera TTFs | WeasyPrint; headless Chrome; browser print-to-PDF | WeasyPrint needs Pango/GTK system libraries (absent on Windows dev, another container dependency); Chrome is heavy and a process per export; browser print is untestable server-side. ReportLab is pure Python, deterministic, ~0.2 s, and Vera covers Unicode that Helvetica's Latin-1 cannot. |
+| **Markdown -> PDF** | A ~120-line parser for the writer's subset (headings, paragraphs, bullets, numbers, quotes, code, rules, pipe tables) into flowables | `markdown-it-py`; `xhtml2pdf`; `pandoc` | `markdown-it` returns HTML and ReportLab does not consume block HTML; walking its token stream is more code than parsing the subset the writer actually emits. `xhtml2pdf` has the same CSS/HTML mismatch plus older dependencies; `pandoc` is an external binary. |
+| **Inline formatting** | Escape HTML first, then re-introduce only `<b>`, `<i>`, `<link>` and a monospace font; code spans and links are stashed so bold/italic cannot edit a URL | Trust the model's markdown; a sanitizer after the fact | Scraped text can contain `<`; ReportLab parses its input as mini-XML and a stray tag is a 500. Escaping first makes the allowed tag set explicit instead of probabilistic. |
+| **Export access rules** | Owner-scoped 404 (never 403); 409 unless `status == "ready"`; `attachment` with ASCII slug + 8 hex chars of the id | 403 for other users; export partial drafts | A 403 confirms the id exists. A generating/failed report is not an answer, and shipping half a file is worse than an error. The id suffix keeps two answers to the same question apart; ASCII keeps the header latin-1-safe. |
+| **Download transport** | Authenticated `GET`, axios `responseType: blob`, object URL, filename from `Content-Disposition`; CORS `expose_headers` | Signed URL; token in query string; `window.open` | There is no bucket to sign. A query-string token lands in history and proxy logs. A plain link cannot send the Bearer header, and the browser hides `Content-Disposition` unless CORS exposes it - the one header this needs. |
+| **Admin aggregate shape** | One `GET /admin/overview?days=` snapshot: users, jobs, reports, tokens, cost, by_day, by_model, top_users, recent_failures, `generated_at` | Five endpoints; a BI tool; per-day client queries | The dashboard needs all of it together; five round trips can render half a page from two different moments. `generated_at` makes staleness explicit. A BI tool is another service and credential for six numbers. |
+| **Failure visibility** | Failed jobs and reports are counted and listed | Count only `ready` | A failure burned tokens and notes. Excluding it makes instability invisible - and the failure list is what an operator acts on. |
+| **Role administration** | `scripts/set_role.py --list` / `--email --role` | `PATCH /admin/users/{id}`; an admin UI | A role endpoint is a privilege-escalation surface: one authorization bug turns any account into an admin. The capability is rare and belongs to whoever can already run commands against the database. Build the endpoint with an audit trail when a real product need exists. |
+| **Frontend charts** | CSS bars sized as a percentage of the window's max | Recharts / Chart.js / D3 | One bar chart is ~15 lines of flexbox; a chart library is tens of kB and a canvas/SVG test surface for a shape that is already a `div`. |
+
+### Phase 8 incidents (each one changed the code)
+
+1. **A one-character table header produced a negative column width.** The writer's comparison table
+   starts with `| # |`, so the width heuristic gave that column ~2 pt; ReportLab subtracts padding and
+   raised `ValueError` inside `_calc_height`. Fix: clamp every column to at least 36 pt, then rescale
+   the widths to the exact frame width so the table still fits the margin. The fixture that exercised
+   it was already in `evals/fixtures/` - the export test now covers it.
+2. **`Invoke-WebRequest` without `-UseBasicParsing` fails in non-interactive PowerShell 5.1.** The
+   verification script died with *"Windows PowerShell is in NonInteractive mode. Read and Prompt
+   functionality is not available"*, then reported `Object reference not set to an instance of an
+   object` because `$md` was null. Fix: `-UseBasicParsing` on every call - the same rule the earlier
+   phase scripts follow, applied here to a new script.
+3. **A fixture dict is not an ORM row.** `build_context` originally did
+   `getattr(report, "id", None) or report["id"]`; a fixture has no `.id` and uses `report_id`, so the
+   conversion raised `badly formed hexadecimal UUID string`. Fix: one explicit `field()` accessor
+   that handles both shapes, plus UUID normalisation - and a unit test that asserts the two paths
+   produce the same `ExportContext`.
+4. **`replace("www.", "")` is not "strip the prefix".** `_host` used it to prettify a missing
+   citation title, which would also edit `www.` in the middle of a hostname. Fix: lowercase and strip
+   the prefix only, with a `source` fallback so an empty URL never renders as an empty bold title.
+5. **CORS hid the one header the download needs.** The blob arrives, but the browser safelist does not
+   expose `Content-Disposition`, so every file was named `deepresearch-report.pdf`. Fix:
+   `expose_headers=["Content-Disposition"]` on the middleware - a one-line consequence of choosing
+   header-based filenames over query parameters.
+6. **PowerShell 5.1 `Set-Content -Encoding UTF8` writes a BOM.** The edited Python module still
+   imported, but the byte-order mark is noise in diffs and a trap for any tool that reads the first
+   line literally. Fix: strip `\xef\xbb\xbf` with Python and write UTF-8 without a BOM; the source
+   files are ASCII-safe.
+
+### Phase 8 verification evidence
+
+`scripts/verify_phase8.ps1` - 6 sections, all passing; it starts a private API on `:8004` and stops it
+in `finally`. It writes to the shared dev database (registers `other@test.com` / `admin@test.com` if
+missing and promotes the latter), and makes no provider calls.
+
+| what | value |
+|---|---|
+| library | `you@test.com`: **1** report, **582** words, **27** sources, precision **1.00**, coverage **0.8947**, **3,075** tokens, model `support-chat-lite` |
+| filters | `q=pgvector` -> **1/1**; `status=ready` -> **1**; `sort=tokens` descending; `status=bogus` -> **422** |
+| Markdown export | **11,670** bytes, `deepresearch-how-should-a-team-choose-...-d44b935a.md`, `text/markdown`, contains title + audit + `## Sources` + `[n]` |
+| PDF export | **79,742** bytes, **4** pages, extractable text, `Sources` present, `Page 1 of 4` footer (read back with `pypdf`) |
+| ownership | cross-user report id -> **404**; random UUID -> **404** |
+| RBAC | agent `/admin/overview` -> **403**; `days=7` echoes the window; `days=0` -> **422** |
+| admin snapshot | users **4** (4 active), jobs **25**, reports **2** (2 ready / 0 failed), tokens **589,875** (research **574,673** + report **15,202**), shadow **$0.121414**, success rate **1.0**, **3** failures in window, **4** chart days |
+| tests | **81** deterministic tests (54 prior + 12 evals + 6 pricing + 9 export); no network, no LLM |
+| frontend | `npm run build` clean: **298.11 kB JS / 94.41 kB gzip**; library search/filter/sort/download + admin KPI/chart/tables |
+| versions | `reportlab 5.1.0`, `pypdf 7.1.1` (test-only); Pillow 13.0.0 arrived as ReportLab's dependency |
+

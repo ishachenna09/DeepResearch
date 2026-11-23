@@ -3,3 +3,7 @@
 # a test framework.
 #   C:\projects\DeepResearch\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 pytest>=8.3
+
+# Phase 8 - the export test reads the PDF back and asserts it contains the
+# report, rather than trusting a `%PDF-` prefix.
+pypdf>=7.1
