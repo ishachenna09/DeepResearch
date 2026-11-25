@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
+import logging
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, SessionDep
+from app.core.ratelimit import digest, enforce_rate_limit, ip_rate_limit
 from app.core.security import (
     create_access_token,
     generate_refresh_token,
@@ -17,6 +19,8 @@ from app.models.user import RefreshToken, User
 from app.schemas.auth import LoginIn, RegisterIn, TokenOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+logger = logging.getLogger(__name__)
 
 REFRESH_COOKIE = "DeepSearch_refresh"
 
@@ -47,8 +51,21 @@ async def _issue_refresh_token(session: SessionDep, user: User, request: Request
     return token
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED, response_model=UserOut)
-async def register(payload: RegisterIn, session: SessionDep) -> User:
+@router.post(
+    "/register",
+    status_code=status.HTTP_201_CREATED,
+    response_model=UserOut,
+    # Open registration is a quota tap: every account can spend LLM tokens.
+    dependencies=[ip_rate_limit("register_ip", limit=5, window=3600)],
+)
+async def register(payload: RegisterIn, request: Request, session: SessionDep) -> User:
+    if settings.REGISTRATION_MODE == "invite":
+        # A header, not a body field: the frontend can send it once from a
+        # deploy-time config, and an existing client does not break on 422.
+        supplied = request.headers.get("x-invite-code", "")
+        if not settings.REGISTRATION_INVITE_CODE or supplied != settings.REGISTRATION_INVITE_CODE:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Registration is invite-only")
+
     email = payload.email.lower()
     existing = await session.scalar(select(User).where(User.email == email))
     if existing:
@@ -66,10 +83,19 @@ async def register(payload: RegisterIn, session: SessionDep) -> User:
     return user
 
 
-@router.post("/login", response_model=TokenOut)
+@router.post(
+    "/login",
+    response_model=TokenOut,
+    dependencies=[ip_rate_limit("login_ip", limit=10, window=60)],
+)
 async def login(
     payload: LoginIn, request: Request, response: Response, session: SessionDep
 ) -> TokenOut:
+    # Per-email limit alongside the per-IP one: credential stuffing rotates
+    # addresses, but it must still guess one account's password many times.
+    await enforce_rate_limit(
+        "login_email", digest(payload.email.lower()), limit=20, window=3600
+    )
     user = await session.scalar(select(User).where(User.email == payload.email.lower()))
     if user is None or not verify_password(user.hashed_password, payload.password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
@@ -85,7 +111,11 @@ async def login(
     )
 
 
-@router.post("/refresh", response_model=TokenOut)
+@router.post(
+    "/refresh",
+    response_model=TokenOut,
+    dependencies=[ip_rate_limit("refresh_ip", limit=30, window=60)],
+)
 async def refresh(
     request: Request, response: Response, session: SessionDep
 ) -> TokenOut:
@@ -97,10 +127,34 @@ async def refresh(
         select(RefreshToken).where(RefreshToken.token_hash == hash_token(token))
     )
     now = datetime.now(timezone.utc)
-    if stored is None or stored.revoked_at is not None or stored.expires_at < now:
+    if stored is None or stored.expires_at < now:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
 
-    # Rotation: revoke old, issue new (reuse detection comes in Phase 2 hardening)
+    if stored.revoked_at is not None:
+        # A rotated token came back. Either an attacker replayed a stolen token
+        # or a stolen copy is racing the real client; both mean the family is
+        # compromised. Revoke every live token for the user, not just this one.
+        revoked = await session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.user_id == stored.user_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
+        await session.commit()
+        logger.warning(
+            "refresh token reuse detected: user=%s revoked=%s",
+            stored.user_id,
+            revoked.rowcount,
+        )
+        response.delete_cookie(REFRESH_COOKIE, path="/")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Refresh token reuse detected; sign in again",
+        )
+
+    # Rotation: revoke old, issue new
     stored.revoked_at = now
     user = await session.get(User, stored.user_id)
     if user is None or not user.is_active:

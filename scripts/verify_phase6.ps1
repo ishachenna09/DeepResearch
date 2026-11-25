@@ -116,9 +116,13 @@ function Start-ApiWithRetry($attempts = 3) {
     $oldMode = $env:AGENTS_MODE
     $oldWriterUrl = $env:A2A_WRITER_URL
     $oldCriticUrl = $env:A2A_CRITIC_URL
+    $oldRate = $env:RATE_LIMIT_ENABLED
     $env:AGENTS_MODE = "a2a"
     $env:A2A_WRITER_URL = "http://127.0.0.1:$WriterPort"
     $env:A2A_CRITIC_URL = "http://127.0.0.1:$CriticPort"
+    # This private instance exists to prove the A2A boundary, not the limiter;
+    # per-user research limits would make a second run inside the hour fail.
+    $env:RATE_LIMIT_ENABLED = "false"
     try {
         for ($i = 1; $i -le $attempts; $i++) {
             $proc = Start-Process -FilePath $python `
@@ -137,6 +141,7 @@ function Start-ApiWithRetry($attempts = 3) {
         $env:AGENTS_MODE = $oldMode
         $env:A2A_WRITER_URL = $oldWriterUrl
         $env:A2A_CRITIC_URL = $oldCriticUrl
+        $env:RATE_LIMIT_ENABLED = $oldRate
     }
     Fail "API did not start after $attempts attempts (see $apiLog)"
 }

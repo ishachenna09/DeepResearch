@@ -23,6 +23,23 @@ class Settings(BaseSettings):
     # INFO is the right default: the graph logs one line per branch, per round
     # and per critic verdict, which is the entire audit trail of a run.
     LOG_LEVEL: str = "INFO"
+    # Host header allowlist. Behind Caddy this is the public domain; locally the
+    # loopback names. A wrong Host is rejected before any route runs.
+    ALLOWED_HOSTS: str = "localhost,127.0.0.1,::1,testserver"
+
+    # ── Phase 9: abuse controls ───────────────────────────────────────────
+    # Rate limits are on by default; tests and the load baseline turn them off
+    # (or raise the multiplier) instead of commenting out decorators.
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_MULTIPLIER: float = 1.0
+    # Only trust X-Forwarded-For when a known proxy overwrites it. Off locally:
+    # a client can forge that header, and trusting it would make every request
+    # look like whoever the caller says it is.
+    TRUST_PROXY_HEADERS: bool = False
+    # Open locally, invite-only in production. The switch exists now so the
+    # deploy does not need a code change to close registration.
+    REGISTRATION_MODE: Literal["open", "invite"] = "open"
+    REGISTRATION_INVITE_CODE: str = ""
 
     # ── Auth ─────────────────────────────────────────────
     SECRET_KEY: str
@@ -115,6 +132,11 @@ class Settings(BaseSettings):
     LANGFUSE_HOST: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_SECRET_KEY: str = ""
+
+    @property
+    def allowed_hosts(self) -> list[str]:
+        """Comma-separated in env so a YAML/JSON list is not required at deploy."""
+        return [host.strip() for host in self.ALLOWED_HOSTS.split(",") if host.strip()]
 
 
 @lru_cache

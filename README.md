@@ -54,7 +54,7 @@ DeepResearch/
 | **6** (done) | Writer + critic extracted as **A2A services** | **A2A** protocol, AgentCards, distributed agents |
 | **7** (done) | Eval gate in CI + Langfuse traces + cost dashboard | Deterministic evals, trace sessions, shadow cost |
 | **8** (done) | Report library, MD/PDF export, admin overview | Derived artifacts vs object storage, PDF generation, RBAC |
-| **9** | Hardening: rate limits, SSRF defense, load + security tests | Production concerns |
+| **9** (done) | Hardening: rate limits, SSRF defense, load + security tests | Production concerns |
 | **10** | Deploy: GH Actions → Docker → EC2 + Vercel → **public URL** | CI/CD, TLS, containers (cloud only) |
 
 ## Local dev (no Docker on laptop)
@@ -109,9 +109,10 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 | `GET` | `/research/{id}/report/stream` | **SSE**: `status` / `token` / `replace` / `done` / `error`, replayable via `Last-Event-ID` |
 | `GET` | `/tools` | MCP tool schema advertised over stdio |
 | `POST` | `/tools/search`, `/tools/fetch` | raw search / page fetch + injection scan |
-| `GET` | `/healthz`, `/health/llm` | dependency health; LLM reports which tier served it |
-| `GET` | `/health/agents` | A2A agent cards (writer/critic) or `mode=local` when they run in-process |
-| `GET` | `/health/langfuse` | `ok` / `disabled` / `error` - "configured" is not "working" |
+| `GET` | `/tools/selftest` | admin-only: runs one real search + fetch through MCP (spends quota) |
+| `GET` | `/healthz`, `/health/llm` | dependency health; `/health/llm` is **authenticated** (5/min) because it spends a real LLM call |
+| `GET` | `/health/agents` | A2A agent cards (writer/critic) or `mode=local` when they run in-process (30/min/IP) |
+| `GET` | `/health/langfuse` | `ok` / `disabled` / `error` - "configured" is not "working" (10/min/IP) |
 | `GET` | `/usage?days=30` | measured tokens + shadow cost for the caller (`scope=all`: admin) |
 | `GET` | `/reports?q=&status=&sort=&limit=&offset=` | the caller's report library: question + audit scalars, no markdown, with a pre-pagination `total` |
 | `GET` | `/reports/{id}/export.md` | the stored report as a Markdown attachment (404 if not yours, 409 if not `ready`) |
@@ -120,6 +121,11 @@ Auth: `POST /auth/register`, `POST /auth/login` -> Bearer JWT on everything else
 
 Status machine: `planning -> awaiting_approval -> researching -> notes_ready`
 (or `rejected` / `failed`). Poll `GET /research/{id}`; a run takes ~2-4 minutes.
+
+Every route is rate-limited (Phase 9). A refusal is **`429`** with a `Retry-After` header in
+seconds and the usual security headers; the client should wait, not retry immediately. Limits are
+per user when the route has an authenticated caller and per IP otherwise - the table is in
+[Hardening (Phase 9)](#hardening-phase-9).
 
 A run may contain **two bounded research rounds**: the initial fan-out, then a
 coverage critic that names up to 3 missing angles and re-searches them. The job
@@ -286,6 +292,109 @@ and see what the whole deployment is doing.
   access. A `PATCH /admin/users/{id}` is a privilege-escalation surface waiting for one
   authorization bug, and is not worth building before there is an audit trail to go with it.
 
+## Hardening (Phase 9)
+
+No new feature: the question is what happens when the input is hostile or the load is real.
+Everything below is proven by `scripts/verify_phase9.ps1`, including the failures.
+
+### Rate limits
+
+| Route | Bucket | Limit |
+|---|---|---|
+| `POST /auth/register` | IP | 5 / hour |
+| `POST /auth/login` | IP **and** email | 10 / min and 20 / hour |
+| `POST /auth/refresh` | IP | 30 / min |
+| `POST /research` | user | 5 / hour and 20 / day |
+| `POST /research/{id}/plan/approve` | user | 20 / hour |
+| `POST /research/{id}/report` | user | 10 / hour |
+| `POST /tools/search` | user | 30 / hour |
+| `POST /tools/fetch` | user | 60 / hour |
+| `GET /reports` | user | 120 / min |
+| `GET /reports/{id}/export.*` | user | 30 / min |
+| `GET /admin/overview` | user | 60 / min |
+| `GET /health/llm` | user | 5 / min |
+| `GET /health/agents` | IP | 30 / min |
+| `GET /health/langfuse` | IP | 10 / min |
+| **everything else** | IP | 300 / min (global backstop) |
+
+- **Fixed window in Redis, written here (~70 lines), not SlowAPI.** One `INCR` + `EXPIRE` per
+  request and a 429 shape we control (`Retry-After`, security headers). The algorithm's known
+  weakness - up to 2x across a window boundary - is an acceptable trade for abuse control and is
+  written down in `docs/TECH_DECISIONS.md` rather than hidden.
+- **Two layers.** Per-route dependencies say *what* is limited ("5 signups per hour"); a pure-ASGI
+  middleware enforces a **300/min/IP** floor on every path, including `/docs` and 404s, so the next
+  route someone forgets is still bounded.
+- **Two identities.** Authenticated routes key on the user id; anonymous ones on the client IP.
+  `X-Forwarded-For` is **ignored** unless `TRUST_PROXY_HEADERS=true`, because trusting it by default
+  lets a caller pick their own bucket. Phase 10 turns it on behind Caddy.
+- **Login is limited twice.** Per IP catches a single noisy host; per email (a salted SHA-256, never
+  the address) catches a botnet stuffing one mailbox.
+- **Redis down falls back to an in-process counter.** Fail-open would make limits advisory, fail-closed
+  would turn a cache outage into an API outage. The per-worker caveat is documented, not ignored.
+- **Replaying a rotated refresh token revokes the whole family.** It is the only response that stops
+  a stolen token from working after the theft is detected; both sides sign in again.
+- **Verification controls the limiter; the limiter does not control verification.**
+  `verify_phase6/7/8` start their own API with `RATE_LIMIT_ENABLED=false` (they prove A2A, evals
+  and exports), and `verify_phase3/4/5` clear only the `dr:rl:*` counters before creating their
+  jobs, so a second run inside the hour is not refused. The limits themselves are proven by
+  `verify_phase9.ps1`.
+
+### Concurrency and resource caps
+
+- **One active research job per user**, enforced by a real partial unique index
+  (`(user_id) WHERE status IN ('planning','researching')`), not an application check. Two concurrent
+  creates both pass a "does an active job exist?" query - the database is the only component that
+  can lock the *absence* of a row. The `IntegrityError` becomes a 409.
+- **Approve takes `FOR UPDATE`** on the job, so a double-click cannot fan out two research runs.
+- **Report start takes `pg_try_advisory_xact_lock(hashtextextended(job_id,0))`.** The lock releases
+  with the transaction even if the process dies - no TTL to tune, no stale lock to clear.
+- **PDF rendering is capped at two concurrent exports** (`asyncio.Semaphore(2)`); overflow is a
+  **503 + `Retry-After`**, which tells the client the truth in one round trip. ReportLab is CPU-bound
+  in a worker thread, and four exports on a 2-vCPU box starve the event loop.
+
+### SSRF and outbound fetches
+
+- **Resolve once, then connect to the validated IP.** `resolve_public_url()` returns a
+  `ResolvedTarget`; the fetch sends the IP as the URL, the original name as `Host`, and the name
+  again as TLS `sni_hostname`. httpx cannot "resolve it again and get a different answer", because
+  it never resolves the name.
+- **`ip.is_global` plus explicit ranges.** CGNAT (100.64/10), NAT64, 6to4, benchmarking, TEST-NETs,
+  multicast and ULA are blocked even where `is_global` is ambiguous. A name whose DNS answer mixes
+  public and private addresses is rejected outright.
+- **Every redirect hop is re-validated and re-pinned**, so a public URL that 302s to `127.0.0.1`
+  stops at the 302.
+- **Bounded download.** At most 2 MB is read (`aiter_bytes` stops at the cap), text-only content
+  types are allowed, and a declared `Content-Length` over the cap is rejected before the body.
+  `trust_env=False` stops an ambient `HTTP_PROXY` from routing around the pin.
+- **Cheap diagnostics stayed public; expensive ones did not.** `/health/llm` spends a real provider
+  call, so it now needs a user (and a 5/min budget); `/tools/selftest` is admin-only.
+
+### Registration
+
+`REGISTRATION_MODE=open` locally; `invite` requires an `X-Invite-Code` header matching
+`REGISTRATION_INVITE_CODE`. The switch exists now so Phase 10 can close signups with an env var
+rather than a code change.
+
+### Measured baseline (honest numbers)
+
+`scripts/load_test.py` runs three scenarios on the app's own `httpx` (no Locust/k6 dependency):
+
+| scenario | result |
+|---|---|
+| read (3 users x 2 s) | 41 requests, p50 **2,032 ms**, p95 **2,982 ms**, no 5xx |
+| export (4 concurrent, PDF/MD) | 42 requests, p95 **2,980 ms**, no 5xx |
+| login burst (wrong password) | 24 attempts, 429 at least once (10/14 or 19/5 split by the minute boundary), `Retry-After` + security headers present |
+
+The ~3 s p95 is the **dev database, not the code**: a cold `SELECT 1` to the free-tier Neon instance
+took **4,253 ms**, a warm user lookup **452 ms**, a report query **671 ms**, while an unauthenticated
+request answers in **9 ms** and Redis `PING` on a reused client is **3 ms**. Phase 10 puts the API
+and the database in one region; the same code then pays single-digit milliseconds. The number is
+recorded as measured rather than relabelled.
+
+Residual risks carried into Phase 10 (fixed-window boundary burst, per-worker fallback, no WAF,
+public `/docs`) are listed in `docs/TECH_DECISIONS.md` §Phase 9 - each with the control that
+closes it.
+
 ## Frontend (research UI)
 
 ```powershell
@@ -342,6 +451,14 @@ with `pypdf` and look for the question, the audit line, the Sources list and the
 `%PDF-` alone would also pass for a blank page. `parse_blocks` is pinned against a pipe table,
 and `build_context` is tested with both an ORM-shaped row and a fixture dict.
 
+Phase 9 adds the adversarial files: `test_netguard.py` (blocked destinations without DNS, host
+normalisation, the pinned-IP `Host`/SNI contract, redirect re-pinning, the streaming cap),
+`test_sanitize.py` (zero-width/soft-hyphen/bidi/NFKC normalisation, each injection shape, and the
+rule that the scan runs **before** truncation), `test_security.py` (alg pinning, expiry, the full
+401 matrix over `app.openapi()`, HSTS only in prod, CORS, error hygiene, 404-not-403), and
+`test_ratelimit.py` / `test_export_limits.py` (window arithmetic, Redis-down fallback, the PDF
+semaphore). No network, no LLM, no clock dependence.
+
 ## Verify a phase (one command)
 
 ```powershell
@@ -355,6 +472,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_phase6.ps1   # A2A cards
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase7.ps1   # eval gate, /usage, Langfuse spans
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase7.ps1 -Live   # + regenerate a report
 powershell -ExecutionPolicy Bypass -File scripts\verify_phase8.ps1   # library, MD/PDF export, admin
+powershell -ExecutionPolicy Bypass -File scripts\verify_phase9.ps1   # rate limits, SSRF, concurrency, load, security
 ```
 
 `verify_phase6.ps1` owns its processes: it starts the writer, the critic and a **second API on
@@ -375,6 +493,14 @@ extractable text (read back with `pypdf`, not a magic-byte check). It also regis
 `other@test.com`/`admin@test.com` if missing, promotes the latter with `set_role.py`, and checks
 cross-user report ids are 404, `/admin/overview` is 403 for an agent and complete for an admin,
 and `days=0` is a 422. It writes to the shared dev database; `-KeepRunning` leaves the API up.
+
+`verify_phase9.ps1` starts a private API on `:8006` and stops it in `finally`. It resets **only**
+the limiter keys (`dr:rl:*`) so a previous burst cannot poison the run, then proves: security
+headers on a normal response and on a 429; forged `Host` -> 400; the auth matrix; the SSRF list
+-> 400 through the real `/tools/fetch` path; refresh-token replay -> 401 **and** the whole family
+revoked; the partial unique index against the real database (a throwaway probe user is deleted in
+`finally`); cross-user report/job ids -> 404; a short read run and four concurrent PDF exports with
+no 5xx; a login burst that must produce a 429; and the full unit suite. It makes **no LLM call**.
 
 Pass `-Base http://localhost:8001/api/v1` when another app already owns `:8000`.
 

@@ -26,6 +26,7 @@ The subset is pinned by the fixtures in `evals/fixtures/`, which include the
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import io
 import os
@@ -524,6 +525,34 @@ class _NumberedCanvas:
                 )
 
         return NumberedCanvas
+
+
+class ExportBusy(RuntimeError):
+    """Raised when the PDF worker slots are all busy past the wait budget."""
+
+
+# ReportLab is synchronous and CPU-bound. Two concurrent renders keep a small
+# instance responsive (a 4-page report is ~0.2 s of pure Python); more than that
+# only queues work the client will time out on anyway.
+_PDF_SEMAPHORE = asyncio.Semaphore(2)
+
+
+async def render_pdf_limited(ctx: ExportContext, *, wait_seconds: float = 5.0) -> bytes:
+    """Render off the event loop, but refuse instead of queueing unboundedly.
+
+    Why a timeout and a 503 rather than an unbounded `to_thread` fan-out?
+    An export is cheap but not free; under a burst, unbounded threads turn a
+    slow endpoint into an unresponsive process. A caller that cannot get a slot
+    in 5 s is better served by `Retry-After` than by a 30 s hang.
+    """
+    try:
+        await asyncio.wait_for(_PDF_SEMAPHORE.acquire(), timeout=wait_seconds)
+    except asyncio.TimeoutError as exc:
+        raise ExportBusy("PDF export capacity is busy") from exc
+    try:
+        return await asyncio.to_thread(render_pdf, ctx)
+    finally:
+        _PDF_SEMAPHORE.release()
 
 
 def render_pdf(ctx: ExportContext) -> bytes:

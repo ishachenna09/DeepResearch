@@ -64,7 +64,11 @@ try {
     if ($busy) { Fail "port $ApiPort is already in use (pid $($busy.OwningProcess -join ',')). Pass another -ApiPort." }
 
     $oldMode = $env:AGENTS_MODE
+    $oldRate = $env:RATE_LIMIT_ENABLED
     $env:AGENTS_MODE = "local"
+    # This private instance proves the eval gate and traces; per-user limits
+    # would only make repeated verification runs fail with 429.
+    $env:RATE_LIMIT_ENABLED = "false"
     try {
         $attempt = 0
         while ($attempt -lt 3) {
@@ -81,6 +85,7 @@ try {
         }
     } finally {
         $env:AGENTS_MODE = $oldMode
+        $env:RATE_LIMIT_ENABLED = $oldRate
     }
     if (-not (Test-Http "$Base/healthz" 5)) { Fail "API did not start (see $apiErr)" }
     Ok "API up on :$ApiPort (pid $($api.Id))"

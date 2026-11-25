@@ -487,3 +487,123 @@ missing and promotes the latter), and makes no provider calls.
 | frontend | `npm run build` clean: **298.11 kB JS / 94.41 kB gzip**; library search/filter/sort/download + admin KPI/chart/tables |
 | versions | `reportlab 5.1.0`, `pypdf 7.1.1` (test-only); Pillow 13.0.0 arrived as ReportLab's dependency |
 
+## Phase 9 - hardening: rate limits, SSRF, concurrency and the load baseline
+
+Phase 9 does not add a feature. It answers one question: *what happens when the input is hostile
+or the load is real?* Every decision below is about spending the least new machinery to get a
+provable answer - and every one of them is exercised by `scripts/verify_phase9.ps1`, not just
+described here.
+
+| Decision | Chosen | Alternatives considered | Why rejected |
+|---|---|---|---|
+| **Rate limiter** | ~70-line fixed-window counter in `app/core/ratelimit.py`: `INCR` + `EXPIRE` in one pipelined round trip, keyed `dr:rl:<bucket>:<identity>` | SlowAPI; `fastapi-limiter`; sliding-window log; token bucket; gateway/WAF limits | SlowAPI and `fastapi-limiter` wrap the same Redis counter but hide the key, the algorithm and the 429 shape behind a decorator; the 429 must carry `Retry-After` **and** the security headers, which is easiest when we own the response. A sliding-window log stores one entry per request (a burst writes thousands of members); a token bucket needs Lua for atomic refill. Fixed window is one `INCR` and its worst case is a 2x burst across a boundary - acceptable for abuse control, and documented as a residual risk rather than hidden. |
+| **Where limits live** | Two layers: per-route dependencies (`user_rate_limit` / `ip_rate_limit`) plus a global **300/min/IP** pure-ASGI middleware backstop | Only per-route; only global | Per-route alone means the next route someone forgets is unlimited. Global alone cannot say "5 signups per hour". The middleware runs before routing so it protects `/docs` and 404 paths too, and it is pure ASGI so the body is never parsed to count a request. |
+| **Identity** | User id for authenticated routes; `client_ip()` for anonymous ones, honouring `X-Forwarded-For` only when `TRUST_PROXY_HEADERS=true` | Always IP; always the JWT | IP alone punishes a whole office/NAT for one user. JWT alone cannot protect `/auth/login`, which has no user yet. Trusting `X-Forwarded-For` by default would let any caller choose their own bucket - the classic limiter bypass - so it is a deploy-time opt-in that Phase 10 turns on behind Caddy. |
+| **Redis down** | Per-process in-memory fallback, logged once | Fail closed (503); fail open (no limits) | Fail-closed turns a cache outage into a full outage. Fail-open makes the limiter a suggestion. The fallback keeps a single worker honest; the honest limitation is that N workers each get their own window - recorded as residual risk, fixed by a real gateway in Phase 10 if it matters. |
+| **Login brute force** | Two counters: 10/min/IP **and** 20/hour/email (salted SHA-256 of the address, never the address itself) | IP only | Distributed attempts rotate IPs but target one mailbox; the email counter is the one that actually stops credential stuffing. Hashing the key keeps PII out of Redis keys and logs. |
+| **Refresh-token reuse** | Replaying a rotated token revokes **every live refresh token for that user** and returns 401 | Ignore replay; revoke only the replayed row | Ignoring replay means a stolen token works until it expires. Revoking only that row leaves the attacker's freshly minted token alive. Revoking the family forces both parties to sign in again - annoying, correct, and the standard OAuth guidance. |
+| **One active research job** | Partial unique index `uq_research_jobs_active_per_user ON research_jobs (user_id) WHERE status IN ('planning','researching')` | Redis lock; `SELECT ... FOR UPDATE` check in the endpoint; application-level check only | A Redis lock expires or is lost and the database then holds two active jobs. `FOR UPDATE` on a row that may not exist yet cannot lock the *absence* of rows, so two concurrent creates both pass. The partial index is enforced by the only component that always sees the truth, and `IntegrityError` maps to a clean 409. |
+| **Double approval / double report** | `SELECT ... FOR UPDATE` on the job at approve; `pg_try_advisory_xact_lock(hashtextextended(job_id,0))` at report start | Unique index only; Redis `SETNX` | Approve is a state transition on an existing row, so `FOR UPDATE` serialises it naturally. Report generation is idempotent-while-running, and an advisory lock releases with the transaction even on a crash - no TTL to tune, no stale lock. |
+| **PDF under load** | `asyncio.Semaphore(2)` around `render_pdf_limited`; overflow -> **503 + `Retry-After`** | Unbounded render; a queue; an external worker | ReportLab is CPU-bound in a thread; four concurrent exports on a 2-vCPU box starve the event loop. A queue needs a worker and a status resource; a 503 with `Retry-After` tells the client the truth in one round trip, and capacity is two renders. |
+| **SSRF: what to connect to** | Resolve once, reject the name if **any** answer is non-public (`ip.is_global` plus explicit ranges: CGNAT, NAT64, 6to4, benchmarking, TEST-NETs, multicast, ULA) | `is_private` only; a hostname blocklist; a proxy | `is_private` misses 100.64/10 and the IPv4-in-IPv6 wrappers. A blocklist is a losing game against DNS. A forward proxy is another service. Rejecting a mixed answer is deliberate: picking "the first public one" lets a rebinding resolver decide. |
+| **SSRF: rebinding** | The guard returns a `ResolvedTarget`; the caller requests the **validated IP literal**, sends the original name as `Host`, and sets `sni_hostname` for TLS. Every redirect hop is re-resolved and re-pinned | Validate then call httpx with the name | httpx resolves the name a second time; that gap is the entire attack. Pinning removes the second resolution instead of racing it. `trust_env=False` stops an ambient `HTTP_PROXY` from routing around the pin. |
+| **SSRF: payload size** | Stream with `aiter_bytes`, stop at `MAX_FETCH_BYTES` (2 MB), reject a declared `Content-Length` over the cap, allow only `text/*` / XHTML | `response.content[:cap]` | `response.content` downloads the whole body before slicing: an endless stream is a memory-exhaustion bug. Reading in chunks bounds the work regardless of what the header claims. |
+| **Diagnostics exposure** | `/health/llm` requires a user (5/min) because it spends a real LLM call; `/tools/selftest` is admin-only; `/health/agents` and `/health/langfuse` are IP-limited | Leave them public | They were developer conveniences that leaked quota: an anonymous caller could burn Gemini calls through `/health/llm`. Cheap diagnostics stay reachable for monitoring; the expensive one now has an owner. |
+| **Registration** | `REGISTRATION_MODE=open|invite` + optional `X-Invite-Code` header | Open forever; a database invitations table | Open locally is the point. An invite table is the Phase 10 design if registration must close for a launch; the switch means the deploy flips an env var instead of shipping a code change. |
+| **Error hygiene** | `_as_http_error`: client-side markers -> 400 with the actionable message; everything else -> generic 502, details logged | Echo the provider error | A traceback or local path in a 502 is free reconnaissance. The SSRF and bad-URL messages are the caller's own input, so echoing those is safe **and** useful. |
+| **Load tool** | ~200-line `scripts/load_test.py` on the existing `httpx` dependency (read / export / login-burst, nearest-rank percentiles, exit codes) | Locust; k6; JMeter | Locust adds gevent/Flask; k6 is a binary that is not in the repo or CI; JMeter is a GUI tool from another era. Three loops and a percentile function are readable at 3 a.m. and run on the app's own Python. |
+| **Health probe cost** | One module-level Redis client reused by `/healthz` | A client per call; no Redis probe | Building a client (DNS + TCP + handshake) cost ~56 ms of every poll, and a load balancer polls every few seconds. redis-py reconnects on its own, so the shared client is also the resilient choice. |
+| **Baseline validity** | The limiter is reset (`scripts/phase9_reset_limits.py`, `dr:rl:*` only) before a burst, and `RATE_LIMIT_MULTIPLIER` exists for a throughput run | Comment out limits for the test; separate Redis | Commenting out decorators means testing different code. A multiplier changes only the budget. Deleting the wrong Redis keys would wipe checkpoints and the page cache, so the reset script matches one prefix. |
+
+### Phase 9 incidents (each one changed the code)
+
+1. **Windows PowerShell 5.1 splatted a string as an array of characters.** `Run-Python($arguments)` was
+   declared without a type, so `& $python @arguments` passed the path one character at a time and Python
+   reported `can't open file 'C:\projects\DeepResearch\C'`. Fix: `param([string[]]$arguments)` - the
+   splat operator needs an array type, not a string that happens to contain spaces. This is the same
+   class of bug as Phase 8's `-UseBasicParsing`: a PowerShell 5.1 trap that only appears in CI-style
+   non-interactive runs.
+2. **Verification shared Redis with the developer's API.** A login burst from an earlier run left
+   `127.0.0.1` over budget, so the next run failed before it tested anything. Fix: reset **only**
+   `dr:rl:*` as test setup, then still demand a 429 from a clean window - setup, not a bypass.
+3. **A verification script that starts its own API needed to wait for the MCP child process.**
+   `/tools` answers 503 until the stdio server is up; the first SSRF probe hit that 503 and looked like
+   a broken guard. Fix: poll `/tools` for up to 60 s before the matrix, and fail loudly if it never
+   arrives.
+4. **`assert_public_url` was not enough because httpx resolved the name again.** The test that redirects
+   a public URL to `127.0.0.1` passed the guard and then connected to loopback. Fix: the guard now returns
+   the pinned target and the fetch path connects to the IP literal only. The regression test asserts the
+   transport saw the IP and the `Host` header saw the name.
+5. **`response.content[:2MB]` is a memory cap, not a work cap.** A hostile server that never closes can
+   still make httpx buffer forever. Fix: `_read_capped` streams and stops; the test feeds two 6-byte
+   chunks through a 10-byte cap and asserts the returned body is exactly 10 bytes.
+6. **The partial index had to be a *real* database test.** A mocked `IntegrityError` proves the exception
+   handler, not the constraint. Fix: `scripts/phase9_db_checks.py` creates a throwaway user, inserts two
+   active jobs, asserts the second is rejected, then finishes the first and asserts the slot is freed -
+   all inside the verification run, with the probe user deleted in `finally`.
+7. **`/health/llm` was an anonymous LLM tap.** It was public from Phase 1 and spends a real provider
+   call. Fix: require a user and 5/min; `verify_phase1.ps1` now logs in first (a Phase 1 script that
+   still passes after a Phase 9 change is a compatibility proof, not a formality).
+8. **The 429 assertion was flaky because a fixed window can roll over mid-burst.** Twelve login
+   attempts sat exactly on the 10/min IP limit, but when the burst straddled a minute boundary the
+   counter reset halfway through: six in one window, six in the next, no 429, red run. The failure
+   was real feedback, not noise - it is the documented boundary weakness happening on cue. Fix: reset
+   the limiter immediately before the burst **and** fire 24 attempts, which exceeds the 20/hour
+   per-email budget no matter where the boundary falls. The exact split varies with the boundary
+   (10 allowed / 14 blocked in one run, 19/5 in another); the invariant the script asserts is that
+   the burst is refused at least once, with `Retry-After` and the security headers intact.
+9. **The new limits broke the old verification scripts.** Phase 3 creates two research jobs per run
+   and Phase 4 creates two more; with a 5/hour per-user limit the fifth job of a normal
+   phase-3-then-phase-4 session was refused with 429. Phase 6/8 also register accounts on every run,
+   against a 5/hour/IP registration limit. Fix: scripts that own their API (`6`, `7`, `8`) start it
+   with `RATE_LIMIT_ENABLED=false`, because they are not testing the limiter; scripts that use the
+   shared API (`3`, `4`, `5`) clear the `dr:rl:*` counters as setup. The limits are still proven by
+   `verify_phase9.ps1`, which runs with normal limits on purpose. A hardening phase that quietly
+   breaks the demo scripts is not hardening - this incident is why every phase script was re-run.
+
+### Phase 9 verification evidence
+
+`scripts/verify_phase9.ps1` - 9 sections, all passing; it starts a private API on `:8006` and stops it
+in `finally`, resets only the limiter keys, and makes no LLM call.
+
+| what | value |
+|---|---|
+| headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, CSP; **no HSTS** from a laptop (HSTS is `prod` + HTTPS only) |
+| Host / auth | forged `Host: evil.example` -> **400**; anonymous `/research` -> **401**; anonymous `/health/llm` -> **401**; agent `/tools/selftest` -> **403**; agent `/admin/overview` -> **403** |
+| SSRF | **11** URLs -> **400** through the real `POST /tools/fetch`: metadata `169.254.169.254`, `127.0.0.1:8000`, `[::1]`, `10.0.0.1`, `192.168.1.1`, CGNAT `100.64.0.1`, decimal `2130706433`, hex `0x7f000001`, port 22, `file://`, credentials in URL |
+| refresh reuse | rotation works; replaying the old cookie -> **401**; the **new** cookie is also dead -> **401** (family revoked) |
+| concurrency | second active job rejected by `uq_research_jobs_active_per_user`; finishing the first frees the slot |
+| ownership | another user's report export -> **404**; another user's job report -> **404**; random UUID -> **404** |
+| read load | **41** requests, **3** users x 2 s, p50 **2,032 ms**, p95 **2,982 ms**, p99 **2,993 ms**, no 5xx (see baseline note; run-to-run p95 is 2.97-3.06 s) |
+| export load | **42** requests, **4** concurrent PDF/MD, p95 **2,980 ms**, no 5xx (503 is the semaphore brake) |
+| login burst | **24** attempts -> 429 at least once (observed 10/14 and 19/5 allowed/blocked, depending on the minute boundary), `Retry-After` and security headers present |
+| tests | **180** deterministic tests (81 prior + 46 SSRF/pinned-fetch + 22 sanitizer + 16 security + 12 limiter + 3 export-cap); no network, no LLM |
+| dependencies | **none added** - the limiter is stdlib + `redis`, the load tool is `httpx`, the PDF cap is `asyncio.Semaphore` |
+| version drift (not bumped here) | `langfuse 5.0.4 -> 5.2.0`, `langchain-openai 1.7.4 -> 1.8.5`, `langchain-core 1.8.0 -> 1.8.4`, `langgraph 1.2.21 -> 1.2.24`, `fastapi 0.162.0 -> 0.165.0`, `pydantic 2.14.1 -> 2.14.4`, `SQLAlchemy 2.1.6 -> 2.1.9`, `python-multipart 0.0.32 -> 0.0.34`, `email-validator 2.3.0 -> 2.4.0`; `mcp` stays 1.30.0 (pinned by `langchain-mcp-adapters 0.3.2`). Upgrade separately: a security commit should not also change the framework. |
+
+### The measured baseline, told honestly
+
+The read run's p95 is **~3 s**, not the <300 ms a hardened API "should" have. That is not the limiter:
+an unauthenticated request is answered in **9 ms**, Redis `PING` on a reused client is **3 ms**, and
+the limiter adds one round trip. The time is the **dev database**: a cold `SELECT 1` takes **4,253 ms**,
+a warm user lookup **452 ms**, and a report query **671 ms**. The dev Postgres is a free-tier Neon
+instance reached across the public internet from this laptop, and every request that touches it pays
+a WAN round trip (often two).
+
+The right conclusion is not "the app is slow" - it is "measure the network before optimising the code".
+Phase 10 places the API and the database in the same region, where that 450-670 ms becomes single-digit
+milliseconds and the same code is fast. The `pool_pre_ping=True` in `db.py` is also visible here: it
+spends a round trip checking a connection the pool already owns. It stays, because a free-tier pooler
+*does* drop idle connections; the fix for latency is locality, not removing the check.
+
+### Residual risks (deliberately carried into Phase 10)
+
+| risk | why it is acceptable now | what closes it |
+|---|---|---|
+| Fixed-window boundary burst: a caller can do 2x the limit across the boundary | Abuse control, not billing; the global 300/min backstop still applies | Sliding window or a gateway rule if a real client abuses it |
+| Per-worker memory fallback means N workers x the limit when Redis is down | One uvicorn locally; a Redis outage is already a degraded service | A gateway (Caddy/ALB) rate limit, or a Redis that is not a single free-tier instance |
+| No WAF / no bot detection | The API is private during Phase 9 | Cloudflare or an ALB WAF in Phase 10 |
+| SSRF guard pins one address; a CDN whose IP rotates mid-request fails | Failure is a clean 400/502, not a leak; the next request re-resolves | Not worth solving until a real source fails |
+| `/docs` and `/openapi.json` are public locally | Useful in dev; no secrets in the schema | Disable in `APP_ENV=prod` (Phase 10 checklist) |
+| Login lockout is per-email/IP, not per-account with a captcha | 20/h/email already makes stuffing expensive | Captcha or proof-of-work if registration opens publicly |
+

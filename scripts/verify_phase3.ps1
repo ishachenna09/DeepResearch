@@ -57,6 +57,16 @@ if ($hz.overall -ne "healthy") { Fail "healthz reports '$($hz.overall)' (postgre
 Ok "healthz: $($hz | ConvertTo-Json -Compress)"
 Note "the API log must show: MCP toolbox ready + page cache ready"
 
+# Phase 9 adds a 5/hour per-user limit on POST /research; this script creates two
+# jobs per run, so a second run inside the hour would be refused with 429.
+# Clearing the limiter counters is test setup (the limit itself is proven by
+# verify_phase9.ps1), and only keys under `dr:rl:` are touched.
+$root = Split-Path -Parent $PSScriptRoot
+$python = Join-Path $root ".venv\Scripts\python.exe"
+if (Test-Path $python) {
+    & $python (Join-Path $root "scripts\phase9_reset_limits.py") 2>&1 | ForEach-Object { Note $_ }
+}
+
 Head "1. login"
 try {
     $login = Invoke-RestMethod -Method Post "$Base/auth/login" -ContentType "application/json" `

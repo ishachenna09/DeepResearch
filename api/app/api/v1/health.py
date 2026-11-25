@@ -2,20 +2,38 @@ from __future__ import annotations
 
 import asyncio
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.deps import SessionDep
+from app.core.deps import CurrentUser, SessionDep
+from app.core.ratelimit import ip_rate_limit, user_rate_limit
 
 router = APIRouter(tags=["health"])
+
+# One client for the lifetime of the process: health is polled every few
+# seconds by a load balancer, and building a client (DNS + TCP + handshake) per
+# call cost ~56 ms of the response. redis-py reconnects on its own after a drop.
+_redis: aioredis.Redis | None = None
+
+
+def _redis_client() -> aioredis.Redis:
+    global _redis
+    if _redis is None:
+        _redis = aioredis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+            health_check_interval=30,
+        )
+    return _redis
 
 
 @router.get("/healthz")
 async def healthz(session: SessionDep) -> dict:
     """Liveness: DB + Redis reachable; plus the agents when they are remote."""
-    import redis.asyncio as aioredis
-
     status: dict[str, str] = {"api": "ok"}
     try:
         await session.execute(text("SELECT 1"))
@@ -24,9 +42,7 @@ async def healthz(session: SessionDep) -> dict:
         status["postgres"] = "down"
 
     try:
-        client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-        await client.ping()
-        await client.aclose()
+        await _redis_client().ping()
         status["redis"] = "ok"
     except Exception:
         status["redis"] = "down"
@@ -47,7 +63,10 @@ async def healthz(session: SessionDep) -> dict:
     return status
 
 
-@router.get("/health/agents")
+@router.get(
+    "/health/agents",
+    dependencies=[ip_rate_limit("health_agents", limit=30, window=60)],
+)
 async def agents_health() -> dict:
     """Card discovery for the two A2A services.
 
@@ -72,7 +91,10 @@ async def agents_health() -> dict:
     return {"mode": "a2a", **cards, "status": "ok" if healthy else "degraded"}
 
 
-@router.get("/health/langfuse")
+@router.get(
+    "/health/langfuse",
+    dependencies=[ip_rate_limit("health_langfuse", limit=10, window=60)],
+)
 async def langfuse_health() -> dict:
     """Is tracing actually connected? Three states, no false green.
 
@@ -97,8 +119,14 @@ async def langfuse_health() -> dict:
     }
 
 
-@router.get("/health/llm")
-async def llm_health() -> dict:
+@router.get(
+    "/health/llm",
+    # This endpoint spends a real LLM call. Public + unauthenticated would be a
+    # free quota tap for anyone who can reach the API, so it needs a user and a
+    # tight per-user budget (the dashboard's "test LLM" button is the only use).
+    dependencies=[user_rate_limit("health_llm", limit=5, window=60)],
+)
+async def llm_health(_user: CurrentUser) -> dict:
     """Calls the LiteLLM proxy via its OpenAI-compatible /v1 API.
 
     Why OpenAI SDK and not litellm.acompletion()? The proxy exposes virtual

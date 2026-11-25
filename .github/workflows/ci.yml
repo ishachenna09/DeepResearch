@@ -23,6 +23,8 @@ jobs:
       LITELLM_MASTER_KEY: sk-ci
       LANGFUSE_PUBLIC_KEY: ""
       LANGFUSE_SECRET_KEY: ""
+      # The limiter is a production control; unit tests construct their own.
+      RATE_LIMIT_ENABLED: "false"
       PYTHONPATH: api
     steps:
       - uses: actions/checkout@v7

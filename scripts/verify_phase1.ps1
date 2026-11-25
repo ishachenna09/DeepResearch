@@ -33,14 +33,6 @@ catch { Fail "API not reachable on :8000 (or /api/v1/healthz failed). Start it: 
 Ok "healthz: $($hz | ConvertTo-Json -Compress)"
 if ($hz.overall -ne "healthy") { Fail "healthz is '$($hz.overall)' (postgres=$($hz.postgres), redis=$($hz.redis))" }
 
-try {
-    $llm = Invoke-RestMethod "$Base/health/llm" -TimeoutSec 60
-    if ($llm.status -ne "ok") { Fail "LLM not OK (status=$($llm.status)). The planner would 502. Fix /health/llm first." }
-    Ok "LLM ok | served_by=$($llm.served_by) | reply=$($llm.reply)"
-} catch {
-    Fail "LLM health check failed: $($_.Exception.Message) $(Body $_)"
-}
-
 # --------------------------------------------------------------------- 1. login
 Head "1. login as $Email"
 try {
@@ -54,6 +46,18 @@ Ok "access token acquired (expires_in=$($login.expires_in)s)"
 
 $me = Invoke-RestMethod "$Base/auth/me" -Headers $h -TimeoutSec 20
 Ok "authenticated as $($me.email) (role=$($me.role), id=$($me.id))"
+
+# --------------------------------------------------------- 1b. LLM reachable
+# Authenticated since Phase 9: the diagnostic spends a real LLM call, so it is
+# not something an anonymous caller may trigger.
+Head "1b. LLM reachable"
+try {
+    $llm = Invoke-RestMethod "$Base/health/llm" -Headers $h -TimeoutSec 60
+    if ($llm.status -ne "ok") { Fail "LLM not OK (status=$($llm.status)). The planner would 502. Fix /health/llm first." }
+    Ok "LLM ok | served_by=$($llm.served_by) | reply=$($llm.reply)"
+} catch {
+    Fail "LLM health check failed: $($_.Exception.Message) $(Body $_)"
+}
 
 # ------------------------------------------------------------- 2. create the job
 Head "2. POST /research  (real LLM call, 5-20s)"

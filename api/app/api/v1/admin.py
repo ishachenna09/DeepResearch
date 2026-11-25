@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.deps import SessionDep, require_role
 from app.core.pricing import estimate_usd, pricing_metadata
+from app.core.ratelimit import user_rate_limit
 from app.models.report import Report
 from app.models.research import ResearchJob
 from app.models.user import User
@@ -34,7 +35,10 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 AdminUser = Annotated[User, Depends(require_role("admin"))]
 
 
-@router.get("/overview")
+@router.get(
+    "/overview",
+    dependencies=[user_rate_limit("admin_overview", limit=60, window=60)],
+)
 async def overview(
     session: SessionDep,
     _admin: AdminUser,

@@ -22,12 +22,14 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.deps import CurrentUser, SessionDep
+from app.core.ratelimit import user_rate_limit
 from app.core.streams import BLOCK_MS, get_report_stream
 from app.db import SessionLocal
 from app.models.report import Report
@@ -43,6 +45,11 @@ router = APIRouter(prefix="/research", tags=["reports"])
 # model is still thinking (Gemini's first token can take 10-20 s).
 _HEARTBEAT_SECONDS = BLOCK_MS // 1000
 _READ_BLOCK_MS = BLOCK_MS
+
+# A `generating` row older than this is assumed orphaned (worker died mid-run);
+# a live generation never runs this long, and startup reconciliation would fix
+# it on the next boot anyway.
+_STALE_GENERATION_SECONDS = 900
 
 
 async def _owned_job(job_id: uuid.UUID, user, session) -> ResearchJob:
@@ -96,7 +103,12 @@ def _to_out(report: Report) -> ReportOut:
     )
 
 
-@router.post("/{job_id}/report", response_model=ReportOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{job_id}/report",
+    response_model=ReportOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[user_rate_limit("report_generate", limit=10, window=3600)],
+)
 async def generate_report(
     job_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> ReportOut:
@@ -111,11 +123,28 @@ async def generate_report(
     if (job.notes_count or 0) == 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Job has no notes to write from")
 
+    # A transaction-scoped advisory lock keyed on the job serialises the
+    # check-then-spawn across workers. `is_generating` only sees this process's
+    # tasks, so without this two uvicorn workers can both start a generation.
+    locked = await session.scalar(
+        text("SELECT pg_try_advisory_xact_lock(hashtextextended(:job, 0))"),
+        {"job": str(job.id)},
+    )
+    if not locked:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Report generation is already being started for this job",
+        )
+
     report = await session.scalar(select(Report).where(Report.job_id == job.id))
 
-    if report is not None and report.status == "generating" and is_generating(report.id):
-        # Already running: attach instead of starting a second generation.
-        return _to_out(report)
+    if report is not None and report.status == "generating":
+        # Attach to a run in this process, or to one another worker just
+        # started. A row older than the generation ceiling is orphaned (the
+        # worker died) and may be taken over instead of blocking forever.
+        age = (datetime.now(timezone.utc) - report.updated_at).total_seconds()
+        if is_generating(report.id) or age < _STALE_GENERATION_SECONDS:
+            return _to_out(report)
 
     if report is None:
         report = Report(job_id=job.id, user_id=user.id, status="generating", markdown="")

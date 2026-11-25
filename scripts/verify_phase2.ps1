@@ -3,6 +3,9 @@
 # Prereqs: API on :8000 with an MCP server spawned at startup (see the API log
 # line "MCP toolbox ready: ['fetch_page', 'web_search']").
 #
+# Section 6 registers/promotes admin@test.com (shared dev database) because
+# Phase 9 made /tools/selftest admin-only. Sections 2-5 use the caller's token.
+#
 # Run: powershell -ExecutionPolicy Bypass -File C:\projects\DeepResearch\scripts\verify_phase2.ps1
 
 param(
@@ -80,8 +83,27 @@ if ($code -ne 400) { Fail "expected HTTP 400 for the metadata address, got '$cod
 Ok "HTTP 400 :: $detail"
 
 # --------------------------------------------------------------- one-shot probe
-Head "6. GET /tools/selftest"
-try { $self = Invoke-RestMethod "$Base/tools/selftest" -Headers $h -TimeoutSec 90 }
+Head "6. GET /tools/selftest  (admin-only since Phase 9)"
+# The probe spends Tavily quota and hits two external services, so Phase 9 made
+# it admin-only. Ensure the admin account exists, promote it (idempotent), then
+# call the probe with that token - the same setup verify_phase8.ps1 uses.
+$root = Split-Path -Parent $PSScriptRoot
+$python = Join-Path $root ".venv\Scripts\python.exe"
+try {
+    Invoke-RestMethod -Method Post "$Base/auth/register" -ContentType "application/json" `
+        -Body (@{ email = "admin@test.com"; full_name = "Admin Account"; password = $Password } | ConvertTo-Json) `
+        -TimeoutSec 30 | Out-Null
+} catch {
+    if ([int]$_.Exception.Response.StatusCode -ne 409) { Fail "could not register admin@test.com: $($_.Exception.Message) $(Body $_)" }
+}
+& $python (Join-Path $root "scripts\set_role.py") --email "admin@test.com" --role admin 2>&1 | ForEach-Object { Write-Host $_ }
+if ($LASTEXITCODE -ne 0) { Fail "could not promote admin@test.com" }
+try {
+    $adminLogin = Invoke-RestMethod -Method Post "$Base/auth/login" -ContentType "application/json" `
+        -Body (@{ email = "admin@test.com"; password = $Password } | ConvertTo-Json) -TimeoutSec 20
+} catch { Fail "admin login failed: $($_.Exception.Message) $(Body $_)" }
+$adminH = @{ Authorization = "Bearer $($adminLogin.access_token)" }
+try { $self = Invoke-RestMethod "$Base/tools/selftest" -Headers $adminH -TimeoutSec 90 }
 catch { Fail "selftest failed: $($_.Exception.Message) $(Body $_)" }
 $self.checks | Format-Table check, ok, detail, ms -AutoSize | Out-String | Write-Host
 if (-not $self.ok) { Fail "selftest reported a failing check" }

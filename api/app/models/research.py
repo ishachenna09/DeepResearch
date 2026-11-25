@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +14,19 @@ def _now() -> datetime:
 
 class ResearchJob(Base):
     __tablename__ = "research_jobs"
+
+    # One *active* job per user, enforced by Postgres rather than by a Python
+    # check that two workers can both pass. `awaiting_approval` is deliberately
+    # outside the predicate: a user may plan another question while one sits at
+    # the human gate.
+    __table_args__ = (
+        Index(
+            "uq_research_jobs_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status IN ('planning', 'researching')"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(

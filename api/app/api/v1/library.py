@@ -14,7 +14,6 @@ would put a credential in browser history and proxy logs. The JWT stays in the
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from typing import Literal
@@ -23,14 +22,16 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 
 from app.core.deps import CurrentUser, SessionDep
+from app.core.ratelimit import user_rate_limit
 from app.models.report import Report
 from app.models.research import ResearchJob
 from app.schemas.report import ReportPageOut, ReportSummaryOut
 from app.services.report_export import (
+    ExportBusy,
     build_context,
     export_filename,
     render_markdown,
-    render_pdf,
+    render_pdf_limited,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
-@router.get("", response_model=ReportPageOut)
+@router.get(
+    "",
+    response_model=ReportPageOut,
+    dependencies=[user_rate_limit("library_list", limit=120, window=60)],
+)
 async def list_reports(
     user: CurrentUser,
     session: SessionDep,
@@ -143,7 +148,10 @@ def _ready(report: Report) -> None:
         )
 
 
-@router.get("/{report_id}/export.md")
+@router.get(
+    "/{report_id}/export.md",
+    dependencies=[user_rate_limit("report_export", limit=30, window=60)],
+)
 async def export_markdown(
     report_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> Response:
@@ -157,7 +165,10 @@ async def export_markdown(
     )
 
 
-@router.get("/{report_id}/export.pdf")
+@router.get(
+    "/{report_id}/export.pdf",
+    dependencies=[user_rate_limit("report_export", limit=30, window=60)],
+)
 async def export_pdf(
     report_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> Response:
@@ -165,9 +176,14 @@ async def export_pdf(
     _ready(report)
     ctx = build_context(report, job.question)
     try:
-        # ReportLab is synchronous and a table-heavy report takes ~0.2 s; run it
-        # off the event loop so one export cannot stall every other request.
-        data = await asyncio.to_thread(render_pdf, ctx)
+        data = await render_pdf_limited(ctx)
+    except ExportBusy as exc:
+        # Capacity, not a client error: tell the caller when to come back.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "PDF export capacity is busy; retry shortly",
+            headers={"Retry-After": "2"},
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - a renderer bug is a 500, not a hang
         logger.exception("PDF export failed for report %s", report.id)
         raise HTTPException(
